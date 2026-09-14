@@ -32,6 +32,7 @@ class MawBuilderPlugin extends Plugin
             'onPagesInitialized'     => ['onPagesInitialized', 100],
             'onPageInitialized'      => ['onPageInitialized', 100],
             'onTwigSiteVariables'    => ['onTwigSiteVariables', 0],
+            'onTwigTemplatePaths'    => ['onTwigTemplatePaths', 0],
             'onAdminSave'            => ['onAdminSave', 0],
         ];
     }
@@ -159,6 +160,22 @@ class MawBuilderPlugin extends Plugin
             $page->media(new Media($folder));
         }
 
+        // Flex object: render its own layout with the draft blocks applied in memory (never saved),
+        // so the preview matches the live object page.
+        $flexRef = $draft['flex'] ?? null;
+        $flex = $this->grav['flex_objects'] ?? null;
+        if (is_array($flexRef) && $flex && ($directory = $flex->getDirectory((string) $flexRef['type']))) {
+            $object = $directory->getObject((string) $flexRef['key']);
+            if ($object) {
+                $object->setProperty($draft['field'] ?? 'blocks', $draft['blocks']);
+                $this->grav['maw_preview_object'] = $object;
+                $header = $page->header();
+                $header->template = 'maw-builder/flex-preview';
+                $page->header($header);
+                $page->template('maw-builder/flex-preview');
+            }
+        }
+
         $this->grav['pages']->addPage($page, $route);
     }
 
@@ -203,10 +220,19 @@ class MawBuilderPlugin extends Plugin
         }
     }
 
+    /** Plugin templates (maw-builder/flex-preview.html.twig) are appended, so themes can override them. */
+    public function onTwigTemplatePaths(): void
+    {
+        $this->grav['twig']->twig_paths[] = __DIR__ . '/templates';
+    }
+
     public function onTwigSiteVariables(): void
     {
         if (!isset($this->grav['maw_preview'])) {
             return;
+        }
+        if (isset($this->grav['maw_preview_object'])) {
+            $this->grav['twig']->twig_vars['maw_preview_object'] = $this->grav['maw_preview_object'];
         }
         $assets = $this->grav['assets'];
         $assets->addCss('plugin://maw-builder/assets/preview-bridge.css', 1);

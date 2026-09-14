@@ -159,7 +159,12 @@ class BuilderController extends AbstractApiController
 
         $blocks = $this->validBlocks($body['blocks'] ?? null);
 
-        $extra = ['title' => $object ? (string) ($object->getProperty('title') ?? $object->getProperty('name') ?? $directory->getTitle()) : $directory->getTitle()];
+        $extra = [
+            'flex' => $object ? ['type' => $type, 'key' => (string) $object->getKey()] : null,
+        ];
+        $extra['title'] = $object
+            ? (string) ($object->getProperty('title') ?? $object->getProperty('name') ?? $directory->getTitle())
+            : $directory->getTitle();
         if ($object && method_exists($object, 'getMediaFolder') && ($folder = $object->getMediaFolder())) {
             $locator = $this->grav['locator'];
             $resolved = $locator->isStream($folder) ? $locator->findResource($folder, true, true) : $folder;

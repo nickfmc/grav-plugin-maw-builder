@@ -1,0 +1,18 @@
+{#
+  Builder preview for a Flex object. Mirrors what the flex-objects page template does on the live site
+  (flex-objects.html.twig → flex-objects/views/object.html.twig): same stylesheet, same object layout, so the
+  preview matches the front end. `maw_preview_object` is the real object with the unsaved blocks applied in memory.
+#}
+{% extends 'partials/base.html.twig' %}
+
+{% block content %}
+    {% if config.get('plugins.flex-objects.built_in_css') ?? true %}
+        {% do assets.addCss('plugin://flex-objects/css/site.css') %}
+    {% endif %}
+
+    {% if maw_preview_object %}
+        {% render maw_preview_object layout: maw_preview_layout|default('default') %}
+    {% else %}
+        {% include 'blocks/_render.html.twig' with {blocks: page.header.blocks} %}
+    {% endif %}
+{% endblock %}
