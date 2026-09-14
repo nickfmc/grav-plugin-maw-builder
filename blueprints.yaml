@@ -1,0 +1,48 @@
+name: MAW Builder
+slug: maw-builder
+type: plugin
+version: 1.0.0
+description: WordPress-style visual page builder for Admin2. Live preview, block inserter, patterns, media picker. Saves plain `blocks:` YAML.
+icon: wand-magic-sparkles
+author:
+  name: Mountain Air Web
+  email: nick@mountainairweb.com
+  url: https://mountainairweb.com
+keywords: page builder, blocks, visual editor, admin2, gutenberg, elementor
+license: MIT
+compatibility:
+  grav: ['2.1']
+dependencies:
+  - { name: grav, version: '>=2.1.0' }
+  - { name: api, version: '>=1.0.30' }
+  - { name: admin2, version: '>=2.1.0' }
+
+form:
+  validation: loose
+  fields:
+    enabled:
+      type: toggle
+      label: PLUGIN_ADMIN.PLUGIN_STATUS
+      highlight: 1
+      default: 1
+      options: { 1: PLUGIN_ADMIN.ENABLED, 0: PLUGIN_ADMIN.DISABLED }
+      validate: { type: bool }
+    replace_field:
+      type: toggle
+      label: Replace the Blocks list field with the visual builder
+      help: When off, pages keep the native Admin2 list field.
+      highlight: 1
+      default: 1
+      options: { 1: PLUGIN_ADMIN.ENABLED, 0: PLUGIN_ADMIN.DISABLED }
+      validate: { type: bool }
+    preview_ttl:
+      type: number
+      label: Preview draft lifetime (seconds)
+      default: 900
+      validate: { type: int, min: 60 }
+    devices:
+      type: fieldset
+      title: Device preview widths
+      fields:
+        devices.tablet: { type: number, label: Tablet width (px), default: 820, validate: { type: int } }
+        devices.mobile: { type: number, label: Mobile width (px), default: 390, validate: { type: int } }

@@ -1,0 +1,17 @@
+title: Pricing + FAQ
+category: section
+description: Three pricing plans with a featured option, then common questions.
+blocks:
+  - type: pricing
+    pricing:
+      heading: Plans for every stage
+      items:
+        - { name: Basic, price: $19, period: /mo, features: "Core features\nEmail support", button_label: Choose, button_url: /contact }
+        - { name: Pro, badge: Popular, featured: true, price: $49, period: /mo, features: "Everything in Basic\nPriority support", button_label: Choose, button_url: /contact }
+        - { name: Team, price: $99, period: /mo, features: "Everything in Pro\n5 seats", button_label: Choose, button_url: /contact }
+  - type: faq
+    faq:
+      heading: Pricing questions
+      items:
+        - { question: Can I cancel anytime?, answer: 'Yes, there are no long-term contracts.' }
+        - { question: Do you offer discounts?, answer: Annual plans get two months free. }

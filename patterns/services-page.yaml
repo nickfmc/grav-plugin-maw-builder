@@ -1,0 +1,37 @@
+title: Services page
+category: page
+description: Intro, service cards, a zig-zag process explanation, stats and a call to action.
+blocks:
+  - type: hero
+    hero:
+      layout: centered
+      eyebrow: Services
+      heading: Services built around your goals
+      text: A short intro explaining how you help and what makes your approach different.
+  - type: features
+    features:
+      columns: 3
+      style: cards
+      items:
+        - { icon: fa-palette, title: Design, text: Brand-aligned, conversion-focused design., url: /contact }
+        - { icon: fa-code, title: Development, text: Fast, accessible, easy-to-edit websites., url: /contact }
+        - { icon: fa-chart-line, title: Growth, text: SEO, analytics and ongoing improvements., url: /contact }
+  - type: media-text
+    background: alt
+    media-text:
+      eyebrow: Our process
+      heading: From first call to launch
+      text: We keep things simple and transparent so you always know what's next.
+      checklist: "Discovery call\nStrategy & design\nBuild & review\nLaunch & support"
+      image_side: right
+  - type: stats
+    align: center
+    stats:
+      items:
+        - { value: 120+, label: Projects delivered }
+        - { value: 98%, label: Client retention }
+        - { value: 4.9/5, label: Average rating }
+  - type: cta
+    cta:
+      heading: Let's build something great
+      buttons: [{ label: Start a project, url: /contact }]

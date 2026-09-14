@@ -1,0 +1,7 @@
+enabled: true
+replace_field: true
+preview_ttl: 900
+max_payload_kb: 512
+devices:
+  tablet: 820
+  mobile: 390

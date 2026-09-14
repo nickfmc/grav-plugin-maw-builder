@@ -1,0 +1,20 @@
+title: Contact page
+category: page
+description: Contact details beside a form, then an FAQ. Needs a `contact` form in the page frontmatter.
+blocks:
+  - type: contact
+    contact:
+      eyebrow: Contact
+      heading: Let's talk
+      text: Tell us a little about your project and we'll get back to you within one business day.
+      form: contact
+      details:
+        - { icon: fa-envelope, label: Email, value: hello@example.com, url: 'mailto:hello@example.com' }
+        - { icon: fa-phone, label: Phone, value: '(555) 010-0000', url: 'tel:+15550100000' }
+  - type: faq
+    background: alt
+    faq:
+      heading: Before you reach out
+      items:
+        - { question: What does a project cost?, answer: 'Most sites range from $3k to $15k depending on scope.' }
+        - { question: Do you offer maintenance?, answer: 'Yes, monthly care plans are available.' }

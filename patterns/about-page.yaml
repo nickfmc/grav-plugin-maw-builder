@@ -1,0 +1,36 @@
+title: About page
+category: page
+description: Story, values, team-style cards and a closing call to action.
+blocks:
+  - type: hero
+    hero:
+      layout: centered
+      eyebrow: About us
+      heading: A small team with big standards
+      text: 'Tell your story in a sentence or two. Who you are, why you started, who you help.'
+  - type: media-text
+    media-text:
+      heading: Our story
+      text: Share how the business began and what drives you today. Keep it human and specific.
+      image_side: left
+  - type: features
+    background: alt
+    features:
+      heading: What we value
+      columns: 3
+      items:
+        - { icon: fa-handshake, title: Honesty, text: 'Clear advice, no jargon.' }
+        - { icon: fa-gem, title: Craft, text: We sweat the details. }
+        - { icon: fa-heart, title: Care, text: Your success is our success. }
+  - type: cards
+    cards:
+      heading: Meet the team
+      columns: 3
+      items:
+        - { title: Alex Morgan, meta: Founder, text: Short bio. }
+        - { title: Riley Chen, meta: Designer, text: Short bio. }
+        - { title: Sam Patel, meta: Developer, text: Short bio. }
+  - type: cta
+    cta:
+      heading: Want to work together?
+      buttons: [{ label: Get in touch, url: /contact }]

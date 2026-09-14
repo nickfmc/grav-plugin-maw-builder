@@ -1,0 +1,53 @@
+title: Landing page
+category: page
+description: Hero, logos, features, testimonial proof, pricing, FAQ and a closing call to action.
+blocks:
+  - type: hero
+    hero:
+      layout: centered
+      eyebrow: Introducing
+      heading: The simplest way to grow your business online
+      text: A clear one-sentence promise that tells visitors exactly what you do and who it is for.
+      buttons:
+        - { label: Get started, url: /contact, style: primary }
+        - { label: See how it works, url: '#features', style: secondary }
+  - type: logos
+    logos:
+      heading: Trusted by great teams
+      items: [{ name: Northwind }, { name: Contoso }, { name: Umbrella }, { name: Initech }, { name: Globex }]
+  - type: features
+    anchor: features
+    features:
+      eyebrow: Why choose us
+      heading: Everything you need, nothing you don't
+      columns: 3
+      style: cards
+      items:
+        - { icon: fa-bolt, title: Fast setup, text: 'Up and running in days, not months.' }
+        - { icon: fa-shield-halved, title: Reliable, text: 'Secure, backed up and monitored.' }
+        - { icon: fa-headset, title: Real support, text: Talk to a human who knows your site. }
+  - type: testimonials
+    background: alt
+    testimonials:
+      heading: What our clients say
+      items:
+        - { quote: They made the whole process painless and the results speak for themselves., name: Jamie Carter, role: 'Owner, Carter & Co' }
+        - { quote: Our enquiries doubled within three months of launch., name: Morgan Diaz, role: Marketing lead }
+  - type: pricing
+    pricing:
+      heading: Simple, transparent pricing
+      items:
+        - { name: Starter, price: $49, period: /mo, description: For new businesses., features: "5 pages\nContact form\nHosting included", button_label: Choose Starter, button_url: /contact }
+        - { name: Growth, badge: Most popular, featured: true, price: $99, period: /mo, description: For growing teams., features: "Unlimited pages\nBlog\nPriority support", button_label: Choose Growth, button_url: /contact }
+        - { name: Custom, price: "Let's talk", description: For complex projects., features: "Custom features\nIntegrations\nDedicated manager", button_label: Contact us, button_url: /contact }
+  - type: faq
+    faq:
+      heading: Frequently asked questions
+      items:
+        - { question: How long does it take?, answer: Most projects launch in two to four weeks. }
+        - { question: Can I edit the site myself?, answer: 'Yes. Every page is editable in the visual builder.' }
+  - type: cta
+    cta:
+      heading: Ready to get started?
+      text: Book a free 20-minute call and we'll map out your next steps.
+      buttons: [{ label: Book a call, url: /contact }]

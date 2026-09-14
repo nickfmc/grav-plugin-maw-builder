@@ -1,0 +1,19 @@
+title: Testimonials band
+category: section
+description: Social proof with stats on a dark background, then three quotes.
+blocks:
+  - type: stats
+    background: dark
+    align: center
+    stats:
+      items:
+        - { value: 10k+, label: Happy customers }
+        - { value: 4.9★, label: Average review }
+        - { value: 24/7, label: Support }
+  - type: testimonials
+    testimonials:
+      heading: Loved by customers
+      items:
+        - { quote: Absolutely brilliant service., name: Casey, role: Customer }
+        - { quote: Fast, friendly and effective., name: Jordan, role: Customer }
+        - { quote: Would recommend to anyone., name: Taylor, role: Customer }

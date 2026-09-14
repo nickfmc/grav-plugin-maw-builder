@@ -1,0 +1,17 @@
+title: Features + call to action
+category: section
+description: Four benefits in a grid followed by an accent call-to-action band.
+blocks:
+  - type: features
+    features:
+      heading: Why people choose us
+      columns: 4
+      items:
+        - { icon: fa-bolt, title: Fast, text: Quick turnaround. }
+        - { icon: fa-lock, title: Secure, text: Best practices built in. }
+        - { icon: fa-mobile-screen, title: Mobile-first, text: Looks great everywhere. }
+        - { icon: fa-headset, title: Supported, text: We're here when you need us. }
+  - type: cta
+    cta:
+      heading: Ready when you are
+      buttons: [{ label: Contact us, url: /contact }]

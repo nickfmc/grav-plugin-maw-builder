@@ -1,0 +1,17 @@
+title: Hero + logos
+category: section
+description: Split hero with image and buttons, followed by a trust bar.
+blocks:
+  - type: hero
+    hero:
+      layout: split
+      eyebrow: New
+      heading: Big, bold headline goes here
+      text: Supporting sentence that explains the value in plain words.
+      buttons:
+        - { label: Get started, url: /contact, style: primary }
+        - { label: Learn more, url: '#', style: secondary }
+  - type: logos
+    logos:
+      heading: As featured in
+      items: [{ name: Forbes }, { name: TechCrunch }, { name: Wired }, { name: The Verge }]

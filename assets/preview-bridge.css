@@ -1,0 +1,6 @@
+/* MAW Builder preview bridge: selection outlines inside the builder iframe. */
+.maw-preview [data-block-index] { position: relative; cursor: pointer; }
+.maw-preview [data-block-index].maw-is-hover { outline: 2px dashed rgb(59 130 246 / 0.7); outline-offset: -2px; }
+.maw-preview [data-block-index].maw-is-selected { outline: 2px solid rgb(37 99 235); outline-offset: -2px; }
+.maw-preview .site-header--sticky { position: relative; }
+.maw-preview html, html.maw-preview { scroll-behavior: auto !important; }
