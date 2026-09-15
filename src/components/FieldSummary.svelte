@@ -1,7 +1,8 @@
 <script>
   // Compact view inside the Admin2 page form: block list + "Open Visual Builder".
   import Icon from './Icon.svelte';
-  import { blockSummary } from '../lib/blocks.js';
+  import { blockSummary, hiddenDevices } from '../lib/blocks.js';
+  import { avatar } from '../lib/presence.svelte.js';
 
   let { store, field, openBuilder } = $props();
 
@@ -34,6 +35,23 @@
     </button>
   </header>
 
+  {#if store.presence?.others.length}
+    {@const editors = store.presence.editors}
+    <p class="presence" class:editing={editors.length}>
+      {#each store.presence.others.slice(0, 5) as person (person.session)}
+        {@const a = avatar(person)}
+        <span class="avatar" style:background={a.color} title={a.name}>{a.initials}</span>
+      {/each}
+      <span>
+        {#if editors.length}
+          {editors.map((p) => avatar(p).name).join(', ')} {editors.length === 1 ? 'is' : 'are'} editing in the visual builder. Opening it starts read-only.
+        {:else}
+          {store.presence.others.map((p) => avatar(p).name).join(', ')} also {store.presence.others.length === 1 ? 'has' : 'have'} this open.
+        {/if}
+      </span>
+    </p>
+  {/if}
+
   {#if !store.canPreview}
     <p class="warn">{store.isFlex ? 'Save this item first. The visual builder previews saved items.' : 'Save the page first. The visual builder needs a page URL to preview.'}</p>
   {/if}
@@ -58,7 +76,8 @@
             <strong>{def?.title || block.type}</strong>
             <span class="text">{block.type === 'global' ? store.sectionTitle(block.global?.section) : blockSummary(block)}</span>
           </button>
-          {#if block.hidden}<span class="badge">Hidden</span>{/if}
+          {#if block.hidden}<span class="badge">Hidden</span>
+          {:else if hiddenDevices(block).length}<span class="badge">Hidden on {hiddenDevices(block).join(', ')}</span>{/if}
         </li>
       {/each}
     </ol>
@@ -76,6 +95,10 @@
   .title { font-weight: 650; font-size: 14px; }
   .sub { color: var(--mb-muted-fg); font-size: 12px; }
   .err { color: var(--mb-danger); }
+  .presence { display: flex; align-items: center; gap: 4px; margin: 0; padding: 8px 14px; font-size: 12px; background: var(--mb-muted); border-bottom: 1px solid var(--mb-border); }
+  .presence.editing { background: color-mix(in srgb, #f97316 14%, transparent); }
+  .presence span:last-child { margin-inline-start: 6px; }
+  .avatar { display: grid; place-items: center; width: 22px; height: 22px; border-radius: 50%; color: #fff; font-size: 9.5px; font-weight: 700; flex: none; }
   .warn { margin: 0; padding: 10px 14px; background: color-mix(in srgb, #eb980a 14%, transparent); font-size: 12px; }
   ol { list-style: none; margin: 0; padding: 6px; display: grid; gap: 4px; }
   li { display: flex; align-items: center; gap: 8px; padding: 4px 8px 4px 6px; border-radius: calc(var(--mb-radius) - 2px); border: 1px solid transparent; }

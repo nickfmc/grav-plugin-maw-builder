@@ -4,6 +4,7 @@ import './styles/base.css';
 import FieldSummary from './components/FieldSummary.svelte';
 import Builder from './components/Builder.svelte';
 import { BuilderStore } from './lib/store.svelte.js';
+import { Presence } from './lib/presence.svelte.js';
 import { currentContext } from './lib/blocks.js';
 
 // Replaced with the compiled CSS by scripts/finalize.mjs.
@@ -56,6 +57,9 @@ class BlocksField extends HTMLElement {
     });
     this.#store.setValue(this.#value);
     this.#store.load();
+    // Presence: everyone with this edit form open (see presence.svelte.js).
+    this.#store.presence = new Presence(this.#store);
+    this.#store.presence.start();
 
     const target = document.createElement('div');
     root.appendChild(target);
@@ -70,6 +74,7 @@ class BlocksField extends HTMLElement {
     queueMicrotask(() => {
       if (this.isConnected) return;
       this.#closeBuilder();
+      this.#store?.presence?.stop();
       if (this.#summary) unmount(this.#summary);
       this.#summary = null;
       this.#store = null;
@@ -87,7 +92,7 @@ class BlocksField extends HTMLElement {
   #openBuilder(selectIndex = -1) {
     if (this.#builder) return;
     const store = this.#store;
-    store.selected = selectIndex;
+    store.select(selectIndex);
     store.open = true;
 
     this.#builderHost = document.createElement('maw-builder-host');
@@ -104,15 +109,24 @@ class BlocksField extends HTMLElement {
       target,
       props: { store, close: () => this.#closeBuilder() },
     });
+    // A clean form means the loaded version is current for us; then check whether someone else is editing.
+    (store.dirty ? Promise.resolve() : store.refreshBase()).then(() => store.presence?.claim());
+    store.refreshClipboard();
   }
 
   #closeBuilder() {
+    const wasOpen = !!this.#builder;
     if (this.#builder) unmount(this.#builder);
     this.#builder = null;
     this.#builderHost?.remove();
     this.#builderHost = null;
     document.documentElement.style.overflow = '';
-    if (this.#store) this.#store.open = false;
+    if (this.#store) {
+      this.#store.open = false;
+      if (this.#store.isSection) this.#store.closeSection();
+      this.#store.select(-1);
+      if (wasOpen) this.#store.presence?.leave();
+    }
   }
 }
 

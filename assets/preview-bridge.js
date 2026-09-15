@@ -2,7 +2,7 @@
  * MAW Builder preview bridge. Loaded only on builder preview requests, inside the builder iframe.
  * Talks to the parent builder with same-origin postMessage:
  *   → parent: {source:'maw-preview', type:'ready'|'hover'|'select'|'rects'|'inline'|'inline-end', ...}
- *   ← parent: {source:'maw-builder', type:'select'|'scrollTo', ...}
+ *   ← parent: {source:'maw-builder', type:'select' (index, multi)|'scrollTo'|'readonly' (value)|'focus-edit'|'md-value', ...}
  *
  * Inline editing: elements rendered with `data-maw-edit="<path>"` (theme's maw_edit() helper) become editable
  * plain text on click. Each keystroke sends {type:'inline', index, path, value}; the builder updates its data
@@ -13,6 +13,8 @@
   if (window.parent === window) return;
   var origin = window.location.origin;
   var selected = -1;
+  var multi = [];      // every selected block index (multi-select), includes `selected`
+  var readOnly = false; // soft lock: another editor has the page; no inline editing
   var editing = null; // {el, index, path, original}
 
   function post(msg) {
@@ -55,7 +57,8 @@
 
   function mark() {
     blocks().forEach(function (el) {
-      el.classList.toggle('maw-is-selected', parseInt(el.getAttribute('data-block-index'), 10) === selected);
+      var i = parseInt(el.getAttribute('data-block-index'), 10);
+      el.classList.toggle('maw-is-selected', i === selected || multi.indexOf(i) >= 0);
     });
   }
 
@@ -577,7 +580,7 @@
   }
 
   document.addEventListener('mouseover', function (e) {
-    var t = (editing || md) ? null : imageTargetOf(e.target);
+    var t = (editing || md || readOnly) ? null : imageTargetOf(e.target);
     if (t) { if (t !== badgeTarget) showBadge(t); }
     else if (badgeTarget) hideBadge();
   });
@@ -692,7 +695,7 @@
   }
 
   document.addEventListener('mouseover', function (e) {
-    if (editing || md) return;
+    if (editing || md || readOnly) return;
     if (listHost && e.composedPath().indexOf(listHost) >= 0) return; // hovering the list UI itself
     var list = listOf(e.target);
     if (!list) {
@@ -743,13 +746,16 @@
     if (listHost && e.composedPath().indexOf(listHost) >= 0) return; // list add / item tools
     // While editing Markdown visually, clicks inside the text just move the caret.
     if (md && md.mode === 'visual' && md.el.contains(e.target)) { e.preventDefault(); return; }
-    var image = imageTargetOf(e.target);
-    var markdown = image ? null : markdownTargetOf(e.target);
-    var editable = image || markdown ? null : editableOf(e.target);
+    // Shift / Ctrl / Cmd clicks change the block selection instead of editing.
+    var modifier = e.shiftKey || e.ctrlKey || e.metaKey;
+    var canEdit = !readOnly && !modifier;
+    var image = canEdit ? imageTargetOf(e.target) : null;
+    var markdown = canEdit && !image ? markdownTargetOf(e.target) : null;
+    var editable = canEdit && !image && !markdown ? editableOf(e.target) : null;
     // Links, buttons and submits must not navigate inside the builder. <summary> is NOT blocked: accordions
     // (FAQ) keep opening and closing on click, except when the click lands on inline-editable text inside it.
     var interactive = e.target.closest('a, button, input[type=submit]');
-    if (image || markdown || editable || interactive) e.preventDefault();
+    if (image || markdown || editable || interactive || (modifier && indexOf(e.target) >= 0)) e.preventDefault();
     // Editing a question inside a closed accordion: open it so the answer is visible too.
     if (editable) {
       var details = editable.closest('details');
@@ -757,8 +763,14 @@
     }
     var i = indexOf(e.target);
     if (i >= 0) {
-      if (i !== selected) {
+      if (modifier) {
+        // The builder owns multi-selection and answers with the new selection.
+        post({ type: 'select', index: i, range: e.shiftKey, toggle: e.ctrlKey || e.metaKey });
+        return;
+      }
+      if (i !== selected || multi.length > 1) {
         selected = i;
+        multi = [i];
         mark();
         post({ type: 'select', index: i });
       }
@@ -773,6 +785,30 @@
     }
   }, true);
   document.addEventListener('submit', function (e) { e.preventDefault(); }, true);
+
+  // Builder shortcuts pressed while the preview has focus go to the builder (it listens on its own window).
+  document.addEventListener('keydown', function (e) {
+    if (editing || md || e.defaultPrevented) return;
+    var t = e.target;
+    if (t && (t.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName))) return;
+    var mod = e.ctrlKey || e.metaKey;
+    var k = e.key.toLowerCase();
+    var forward = k === 'delete' || k === 'backspace' || k === 'escape'
+      || (mod && ['z', 'y', 's', 'd', 'c', 'x', 'a'].indexOf(k) >= 0)
+      || (e.altKey && (k === 'arrowup' || k === 'arrowdown'));
+    if (!forward) return;
+    e.preventDefault();
+    post({ type: 'key', key: e.key, code: e.code, ctrlKey: e.ctrlKey, metaKey: e.metaKey, shiftKey: e.shiftKey, altKey: e.altKey });
+  });
+  document.addEventListener('paste', function (e) {
+    if (editing || md) return;
+    var t = e.target;
+    if (t && (t.isContentEditable || /^(INPUT|TEXTAREA)$/.test(t.tagName))) return;
+    var text = (e.clipboardData || window.clipboardData).getData('text/plain');
+    if (!text) return;
+    e.preventDefault();
+    post({ type: 'paste', text: text });
+  });
 
   var lastHover = -2;
   document.addEventListener('mouseover', function (e) {
@@ -805,8 +841,17 @@
     var d = e.data;
     if (d.type === 'select') {
       selected = typeof d.index === 'number' ? d.index : -1;
+      multi = Array.isArray(d.multi) ? d.multi : (selected >= 0 ? [selected] : []);
       mark();
       if (d.scroll) scrollToIndex(selected, d.behavior);
+    } else if (d.type === 'readonly') {
+      readOnly = !!d.value;
+      if (readOnly) {
+        if (md) finishMd(true);
+        stopEdit(true);
+        hideBadge();
+        hideListUi();
+      }
     } else if (d.type === 'scrollTo') {
       window.scrollTo({ top: d.y || 0, behavior: 'instant' });
     }

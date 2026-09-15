@@ -13,8 +13,8 @@ function headers(extra = {}) {
   return h;
 }
 
-async function request(method, path, body) {
-  const init = { method, headers: headers(), credentials: 'same-origin' };
+async function request(method, path, body, extra = {}) {
+  const init = { method, headers: headers(), credentials: 'same-origin', ...extra };
   if (body instanceof FormData) {
     init.body = body;
   } else if (body !== undefined) {
@@ -26,7 +26,9 @@ async function request(method, path, body) {
   const json = await res.json().catch(() => ({}));
   if (!res.ok) {
     const msg = json?.error?.message || json?.message || json?.detail || `Request failed (${res.status})`;
-    throw new Error(msg);
+    const err = new Error(msg);
+    err.status = res.status;
+    throw err;
   }
   return json && typeof json === 'object' && 'data' in json ? json.data : json;
 }
@@ -37,7 +39,7 @@ export function routeSegment(route) {
 }
 
 /** Query/body parameters that identify what's being edited. */
-function ownerParams(ctx) {
+export function ownerParams(ctx) {
   if (ctx.kind === 'flex') return { context: 'flex', type: ctx.type, key: ctx.key };
   if (ctx.kind === 'section') return { context: 'section', id: ctx.id };
   return { context: 'page', route: ctx.route };
@@ -59,13 +61,23 @@ export const api = {
   /** Media stored with the page or Flex object being edited (global sections have none: they use the site library). */
   ownMedia: (ctx) => (ctx.kind === 'section' ? Promise.resolve([]) : request('GET', ownMediaPath(ctx))),
 
+  /** What's saved on the server: {modified, matches (when blocks are given), saved_by}. */
+  state: (ctx, field, blocks) => request('POST', '/maw-builder/state', { ...ownerParams(ctx), field, ...(blocks ? { blocks } : {}) }),
+
+  /** Presence heartbeat: {you, editors: [other sessions], modified, saved_by}. */
+  presence: (ctx, session, editing) => request('POST', '/maw-builder/presence', { ...ownerParams(ctx), session, editing }),
+  /** Sent while the page may be unloading: keepalive lets it finish. */
+  releasePresence: (ctx, session) => request('DELETE', '/maw-builder/presence?' + new URLSearchParams({ ...ownerParams(ctx), session }), undefined, { keepalive: true }),
+  /** Copy media files referenced by pasted blocks: {copied, skipped, missing, refused}. */
+  copyMedia: (fromParams, toCtx, files) => request('POST', '/maw-builder/media/copy', { from: fromParams, to: ownerParams(toCtx), files }),
+
   revisions: (ctx) => request('GET', '/maw-builder/revisions?' + new URLSearchParams(ownerParams(ctx))),
   revision: (ctx, id) => request('GET', `/maw-builder/revisions/${encodeURIComponent(id)}?` + new URLSearchParams(ownerParams(ctx))),
 
   sections: () => request('GET', '/maw-builder/sections'),
   section: (id) => request('GET', `/maw-builder/sections/${encodeURIComponent(id)}`),
   createSection: (title, blocks) => request('POST', '/maw-builder/sections', { title, blocks }),
-  updateSection: (id, data) => request('PATCH', `/maw-builder/sections/${encodeURIComponent(id)}`, data),
+  updateSection: (id, data, force = false) => request('PATCH', `/maw-builder/sections/${encodeURIComponent(id)}${force ? '?force=1' : ''}`, data),
   deleteSection: (id, force = false) => request('DELETE', `/maw-builder/sections/${encodeURIComponent(id)}${force ? '?force=1' : ''}`),
   uploadOwnMedia: (ctx, files) => {
     const fd = new FormData();

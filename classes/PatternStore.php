@@ -55,7 +55,7 @@ class PatternStore
         }
         $data = ['title' => $title, 'category' => $category === 'page' ? 'page' : 'section',
             'description' => $description, 'blocks' => array_values($blocks)];
-        file_put_contents($file, Yaml::dump($data, 10, 2));
+        Files::write($file, Yaml::dump($data, 10, 2));
 
         return ['id' => 'user:' . basename($file, '.yaml'), 'source' => 'user'] + $data;
     }

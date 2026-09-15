@@ -130,6 +130,10 @@ class MawBuilderPlugin extends Plugin
             $r->post('/patterns', [BuilderController::class, 'savePattern']);
             $r->delete('/patterns/{id}', [BuilderController::class, 'deletePattern']);
             $r->post('/preview', [BuilderController::class, 'preview']);
+            $r->post('/state', [BuilderController::class, 'state']);
+            $r->post('/presence', [BuilderController::class, 'presence']);
+            $r->delete('/presence', [BuilderController::class, 'releasePresence']);
+            $r->post('/media/copy', [BuilderController::class, 'copyMedia']);
             $r->get('/revisions', [BuilderController::class, 'revisions']);
             $r->get('/revisions/{id}', [BuilderController::class, 'revision']);
             $r->get('/sections', [BuilderController::class, 'sections']);

@@ -1,7 +1,19 @@
 // Block shape helpers. Canonical shape (what Grav/Admin2 store):
 //   { type: 'faq', background: 'alt', faq: { heading: '...', items: [...] } }
 
-export const DEFAULT_SETTING_KEYS = ['anchor', 'background', 'spacing', 'width', 'align', 'class', 'reveal', 'hidden'];
+export const DEFAULT_SETTING_KEYS = ['anchor', 'background', 'spacing', 'width', 'align', 'class', 'reveal', 'hidden', 'hide_on'];
+
+const DEVICES = ['mobile', 'tablet', 'desktop'];
+
+/** Devices a block is hidden on (`hide_on` as list, comma list or map), in mobile → desktop order. */
+export function hiddenDevices(block) {
+  let v = block?.hide_on;
+  if (typeof v === 'string') v = v.split(',');
+  else if (v && typeof v === 'object' && !Array.isArray(v)) v = Object.keys(v).filter((k) => v[k]);
+  if (!Array.isArray(v)) return [];
+  const set = new Set(v.map((d) => String(d).trim().toLowerCase()));
+  return DEVICES.filter((d) => set.has(d));
+}
 
 const clone = (v) => (v === undefined ? undefined : JSON.parse(JSON.stringify(v)));
 

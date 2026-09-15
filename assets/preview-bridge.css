@@ -20,6 +20,24 @@ html.maw-preview { scroll-behavior: auto !important; }
 .maw-preview [data-maw-edit-image] > * { cursor: pointer; }
 .maw-preview [data-maw-global] [data-maw-edit-image] > * { cursor: pointer; }
 
+/* Per-device visibility: blocks hidden at the current preview width stay selectable, faded and labelled */
+.maw-preview .hide-on-mobile, .maw-preview .hide-on-tablet, .maw-preview .hide-on-desktop { --maw-hidden-label: none; }
+@media (max-width: 640px) { .maw-preview .hide-on-mobile { --maw-hidden-label: "Hidden on mobile"; } }
+@media (min-width: 641px) and (max-width: 960px) { .maw-preview .hide-on-tablet { --maw-hidden-label: "Hidden on tablet"; } }
+@media (min-width: 961px) { .maw-preview .hide-on-desktop { --maw-hidden-label: "Hidden on desktop"; } }
+@media (max-width: 640px) { .maw-preview .hide-on-mobile > * { opacity: 0.4; } }
+@media (min-width: 641px) and (max-width: 960px) { .maw-preview .hide-on-tablet > * { opacity: 0.4; } }
+@media (min-width: 961px) { .maw-preview .hide-on-desktop > * { opacity: 0.4; } }
+.maw-preview .hide-on-mobile, .maw-preview .hide-on-tablet, .maw-preview .hide-on-desktop { position: relative; }
+.maw-preview .hide-on-mobile::after, .maw-preview .hide-on-tablet::after, .maw-preview .hide-on-desktop::after {
+  content: var(--maw-hidden-label); position: absolute; inset: 0; z-index: 4; pointer-events: none;
+  /* Label bottom-left: the builder's block toolbar sits top-right and the global-section badge top-left. */
+  display: flex; align-items: flex-end; justify-content: flex-start; padding: 8px 10px;
+  font: 700 12px/1.6 system-ui, sans-serif; color: #fff; text-shadow: 0 1px 2px rgb(0 0 0 / 0.9), 0 0 6px rgb(0 0 0 / 0.6);
+  background: repeating-linear-gradient(135deg, rgb(245 158 11 / 0.22) 0 10px, transparent 10px 20px);
+  box-shadow: inset 0 0 0 2px rgb(245 158 11 / 0.7);
+}
+
 /* Global (synced) sections: labelled outline so editors know they're shared */
 .maw-preview [data-maw-global] { position: relative; }
 .maw-preview [data-maw-global]::before { content: "Global section"; position: absolute; z-index: 5; top: 6px; left: 6px; font: 600 11px/1 system-ui, sans-serif; padding: 4px 7px; border-radius: 4px; background: #7c3aed; color: #fff; pointer-events: none; opacity: 0; transition: opacity 120ms; }

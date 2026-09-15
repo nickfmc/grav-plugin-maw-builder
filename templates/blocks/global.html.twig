@@ -7,7 +7,10 @@
 #}
 {% set section = not maw_nested|default(false) and block.section ? maw_global_section(block.section) : null %}
 {% if section %}
-    <div class="maw-global" data-block="global" data-maw-global="{{ section.id|e }}"{% if index is defined %} data-block-index="{{ index - 1 }}"{% endif %}>
+    {# Per-device visibility (shared `hide_on` setting). Plain Twig: this plugin template must not need theme filters. #}
+    {% set hide_on = block.hide_on is iterable ? block.hide_on : (block.hide_on|default('') ? block.hide_on|split(',') : []) %}
+    {% set visibility = ['mobile', 'tablet', 'desktop']|filter(d => d in hide_on)|map(d => 'hide-on-' ~ d)|join(' ') %}
+    <div class="maw-global{{ visibility ? ' ' ~ visibility }}" data-block="global" data-maw-global="{{ section.id|e }}"{% if index is defined %} data-block-index="{{ index - 1 }}"{% endif %}>
         {% include 'blocks/_render.html.twig' with {blocks: section.blocks, maw_nested: true} %}
     </div>
 {% elseif config.system.debugger.enabled or grav.user.authenticated or maw_preview_active() %}

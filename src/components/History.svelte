@@ -3,8 +3,17 @@
   // Restoring loads a version into the editor (undoable); it's saved with Update / Save section.
   import Icon from './Icon.svelte';
   import { api } from '../lib/api.js';
+  import RevisionDiff from './RevisionDiff.svelte';
 
   let { store, askConfirm } = $props();
+  let comparing = $state(-1);         // index into items while the compare dialog is open
+
+  // Let the builder's keyboard handler close the dialog with Escape (and not act on the page meanwhile).
+  $effect(() => {
+    if (comparing < 0) return;
+    store.modal = { close: () => (comparing = -1) };
+    return () => { store.modal = null; };
+  });
 
   let items = $state([]);
   let loading = $state(false);
@@ -85,9 +94,14 @@
           {rev.count} {rev.count === 1 ? 'block' : 'blocks'}{rev.user ? ` · ${rev.user}` : ''}{rev.label ? ` · ${rev.label}` : ''}
         </div>
         <div class="types">{summary(rev)}</div>
-        <button type="button" class="mb-btn sm" disabled={busyId === rev.id} onclick={() => restore(rev, i)}>
-          <Icon name="history" size={12} /> {busyId === rev.id ? 'Restoring…' : 'Restore'}
-        </button>
+        <div class="btns">
+          <button type="button" class="mb-btn sm" onclick={() => (comparing = i)} title="See what changed">
+            <Icon name="layers" size={12} /> Compare
+          </button>
+          <button type="button" class="mb-btn sm" disabled={busyId === rev.id || store.readOnly} onclick={() => restore(rev, i)}>
+            <Icon name="history" size={12} /> {busyId === rev.id ? 'Restoring…' : 'Restore'}
+          </button>
+        </div>
       </div>
     </li>
   {:else}
@@ -96,6 +110,12 @@
     {/if}
   {/each}
 </ol>
+
+{#if comparing >= 0 && items[comparing]}
+  <RevisionDiff {store} {when} rev={items[comparing]} previous={items[comparing + 1] || null}
+                onclose={() => (comparing = -1)}
+                onrestore={(rev) => { const i = comparing; comparing = -1; restore(rev, i); }} />
+{/if}
 
 <style>
   .head { display: flex; gap: 6px; align-items: flex-start; }
@@ -107,6 +127,7 @@
   .row { display: flex; gap: 6px; align-items: baseline; }
   .time, .meta { color: var(--mb-muted-fg); font-size: 11.5px; }
   .types { font-size: 11.5px; margin: 2px 0 6px; color: var(--mb-fg); opacity: 0.8; }
+  .btns { display: flex; gap: 4px; flex-wrap: wrap; }
   .muted { color: var(--mb-muted-fg); }
   .error { color: var(--mb-danger); }
 </style>

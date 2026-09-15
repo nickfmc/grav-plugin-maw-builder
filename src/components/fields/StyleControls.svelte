@@ -1,13 +1,16 @@
 <script>
   // Shared section settings (flat on the block) as visual controls.
   //   mode="style":    background (theme presets + custom hex), text color, spacing, width, align, reveal
-  //   mode="advanced": anchor, class, hidden (+ any settings the theme adds that we don't special-case)
+  //   mode="advanced": anchor, class (+ any settings the theme adds that we don't special-case)
+  //   mode="visibility": only the visibility group (hide on devices / everywhere), used for global section references
   import Icon from '../Icon.svelte';
   import FieldControl from './FieldControl.svelte';
+  import { hiddenDevices } from '../../lib/blocks.js';
 
   let { block, store, settings = [], mode = 'style' } = $props();
 
-  const STYLE = ['background', 'bg_color', 'text_color', 'spacing', 'width', 'align', 'reveal'];
+  const STYLE = ['background', 'bg_color', 'text_color', 'spacing', 'width', 'align', 'reveal', 'hidden', 'hide_on'];
+  const DEVICES = [['mobile', 'phone', 'Mobile'], ['tablet', 'tablet', 'Tablet'], ['desktop', 'monitor', 'Desktop']];
   // Used only until the preview reports the theme's real colors.
   const FALLBACK = { none: '#ffffff', alt: '#f6f7f9', soft: '#e7edfd', accent: '#2563eb', dark: '#0b1120' };
   const HEX = /^#([0-9a-f]{3}|[0-9a-f]{6})$/i;
@@ -27,6 +30,25 @@
   }
 
   const current = (name) => block[name] ?? byName[name]?.default;
+
+  const hideOn = $derived(hiddenDevices(block));
+
+  function toggleDevice(device) {
+    const next = hideOn.includes(device) ? hideOn.filter((d) => d !== device) : [...hideOn, device];
+    // Keep the stored order stable (mobile, tablet, desktop); an empty list is removed.
+    const list = DEVICES.map(([d]) => d).filter((d) => next.includes(d));
+    store.beginEdit();
+    if (list.length) block.hide_on = list;
+    else delete block.hide_on;
+    store.endEdit();
+  }
+
+  function toggleEverywhere() {
+    store.beginEdit();
+    if (block.hidden) delete block.hidden;
+    else block.hidden = true;
+    store.endEdit();
+  }
 
   function pickPreset(value) {
     store.beginEdit();
@@ -141,7 +163,38 @@
   {#if byName.reveal}
     <FieldControl field={byName.reveal} target={block} {store} />
   {/if}
-{:else}
+{/if}
+
+{#if mode === 'style' || mode === 'visibility'}
+  {#if byName.hide_on || byName.hidden}
+    <div class="group">
+      <span class="mb-label">Visibility</span>
+      <div class="seg">
+        {#if byName.hide_on}
+          {#each DEVICES as [device, icon, label]}
+            {@const off = hideOn.includes(device)}
+            <button type="button" class="dev" class:off disabled={!!block.hidden} aria-pressed={!off}
+                    title={off ? `Hidden on ${label.toLowerCase()}: click to show` : `Shown on ${label.toLowerCase()}: click to hide`}
+                    onclick={() => toggleDevice(device)}>
+              <Icon name={off ? 'eye-off' : icon} size={13} /> {label}
+            </button>
+          {/each}
+        {/if}
+        {#if byName.hidden}
+          <button type="button" class="dev" class:off={!!block.hidden} aria-pressed={!!block.hidden} onclick={toggleEverywhere}
+                  title="Don't render this block anywhere">
+            <Icon name="eye-off" size={13} /> Hide all
+          </button>
+        {/if}
+      </div>
+      <div class="mb-help">
+        {#if block.hidden}Hidden everywhere. The block isn't rendered on the site.
+        {:else if hideOn.length}Hidden on {hideOn.join(', ')}. Still visible in this editor, striped.
+        {:else}Shown on every screen size.{/if}
+      </div>
+    </div>
+  {/if}
+{:else if mode === 'advanced'}
   {#each others as s (s.name)}
     <FieldControl field={s} target={block} {store} />
   {/each}
@@ -166,4 +219,7 @@
   .seg { display: flex; padding: 3px; background: var(--mb-muted); border-radius: 7px; gap: 2px; flex-wrap: wrap; }
   .seg button { flex: 1; border: 0; background: none; padding: 5px 4px; border-radius: 5px; font-size: 12px; font-weight: 550; color: var(--mb-muted-fg); }
   .seg button.active { background: var(--mb-card); color: var(--mb-fg); box-shadow: 0 1px 2px rgb(0 0 0 / 0.12); }
+  .seg button.dev { display: inline-flex; align-items: center; justify-content: center; gap: 4px; background: var(--mb-card); color: var(--mb-fg); box-shadow: 0 1px 2px rgb(0 0 0 / 0.12); }
+  .seg button.dev.off { background: transparent; color: #b45309; box-shadow: none; text-decoration: line-through; }
+  .seg button.dev:disabled { opacity: 0.45; }
 </style>

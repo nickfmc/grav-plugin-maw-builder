@@ -7,14 +7,18 @@ namespace Grav\Plugin\MawBuilder\Controllers;
 use Grav\Common\Page\Interfaces\PageInterface;
 use Grav\Plugin\Api\Auth\JwtAuthenticator;
 use Grav\Plugin\Api\Controllers\AbstractApiController;
+use Grav\Plugin\Api\Exceptions\ConflictException;
 use Grav\Plugin\Api\Exceptions\ForbiddenException;
 use Grav\Plugin\Api\Exceptions\NotFoundException;
 use Grav\Plugin\Api\Exceptions\ValidationException;
 use Grav\Plugin\Api\Response\ApiResponse;
 use Grav\Plugin\MawBuilder\BlockRegistry;
+use Grav\Plugin\MawBuilder\MediaCopy;
 use Grav\Plugin\MawBuilder\PatternStore;
+use Grav\Plugin\MawBuilder\PresenceStore;
 use Grav\Plugin\MawBuilder\PreviewDraft;
 use Grav\Plugin\MawBuilder\RevisionStore;
+use Grav\Plugin\MawBuilder\SectionConflict;
 use Grav\Plugin\MawBuilder\SectionStore;
 use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\ServerRequestInterface;
@@ -191,6 +195,7 @@ class BuilderController extends AbstractApiController
         $user = (string) $this->getUser($request)->username;
         $section = (new SectionStore($this->grav))->create(mb_substr($title, 0, 80), $blocks, $user);
         (new RevisionStore($this->grav))->record('section:' . $section['id'], $section['blocks'], $user, 'Created');
+        $this->sectionChanged($section['id'], 'create');
 
         return ApiResponse::create($section, 201);
     }
@@ -210,7 +215,10 @@ class BuilderController extends AbstractApiController
         return ApiResponse::create($section);
     }
 
-    /** PATCH /maw-builder/sections/{id}  {title?, blocks?} */
+    /**
+     * PATCH /maw-builder/sections/{id}  {title?, blocks?, base_rev?}
+     * With `base_rev`, a section saved by someone else in the meantime is refused with 409 unless ?force=1.
+     */
     public function updateSection(ServerRequestInterface $request): ResponseInterface
     {
         $this->requirePermission($request, self::PERMISSION);
@@ -221,12 +229,19 @@ class BuilderController extends AbstractApiController
             : null;
         $title = isset($body['title']) ? mb_substr(trim((string) $body['title']), 0, 80) : null;
         $user = (string) $this->getUser($request)->username;
+        $force = !empty($request->getQueryParams()['force']);
+        $baseRev = !$force && isset($body['base_rev']) && is_numeric($body['base_rev']) ? (int) $body['base_rev'] : null;
 
-        $section = (new SectionStore($this->grav))->update($id, $title ?: null, $blocks, $user);
+        try {
+            $section = (new SectionStore($this->grav))->update($id, $title ?: null, $blocks, $user, $baseRev);
+        } catch (SectionConflict $e) {
+            throw new ConflictException($e->getMessage());
+        }
         if (!$section) {
             throw new NotFoundException("Global section '{$id}' not found.");
         }
         (new RevisionStore($this->grav))->record('section:' . $id, $section['blocks'], $user);
+        $this->sectionChanged($id, 'update');
 
         return ApiResponse::create($section);
     }
@@ -244,8 +259,175 @@ class BuilderController extends AbstractApiController
         if (!$store->delete($id)) {
             throw new NotFoundException("Global section '{$id}' not found.");
         }
+        $this->sectionChanged($id, 'delete');
 
         return ApiResponse::noContent();
+    }
+
+    /* ================================================================ save state */
+
+    /**
+     * POST /maw-builder/state  {<owner params>, blocks?}
+     * → {modified, matches, saved_by}. The builder polls this after triggering Admin2's save to confirm the
+     * blocks it sent are really on disk (a failed validation or expired session never changes the file).
+     */
+    public function state(ServerRequestInterface $request): ResponseInterface
+    {
+        $body = $this->getRequestBody($request);
+        $owner = $this->resolveOwner($request, $body);
+        $matches = null;
+        if (array_key_exists('blocks', $body)) {
+            $matches = self::comparable($this->validBlocks($owner['saved'])) === self::comparable($this->validBlocks($body['blocks']));
+        }
+        $latest = (new RevisionStore($this->grav))->list($owner['owner'], 1)[0] ?? null;
+
+        return ApiResponse::create([
+            'owner' => $owner['owner'],
+            'modified' => $owner['modified'],
+            'matches' => $matches,
+            'saved_by' => $latest['user'] ?? '',
+        ]);
+    }
+
+    /* ================================================================ presence */
+
+    /**
+     * POST /maw-builder/presence  {<owner params>, session, editing}
+     * Heartbeat for "who else has this open". → {you, editors: [other sessions], modified, saved_by}
+     */
+    public function presence(ServerRequestInterface $request): ResponseInterface
+    {
+        $body = $this->getRequestBody($request);
+        $owner = $this->resolveOwner($request, $body);
+        $session = (string) ($body['session'] ?? '');
+        if (!PresenceStore::validSession($session)) {
+            throw new ValidationException('Invalid presence session id.');
+        }
+        $user = $this->getUser($request);
+        $username = (string) $user->username;
+        $others = (new PresenceStore($this->grav))->touch(
+            $owner['owner'],
+            $session,
+            $username,
+            (string) ($user->fullname ?: $username),
+            !empty($body['editing'])
+        );
+        $latest = (new RevisionStore($this->grav))->list($owner['owner'], 1)[0] ?? null;
+
+        return ApiResponse::create([
+            'you' => $username,
+            'editors' => array_map(fn ($s) => [
+                'session' => $s['session'],
+                'user' => $s['user'],
+                'fullname' => $s['fullname'],
+                'since' => $s['since'],
+                'editing' => (bool) $s['editing'],
+            ], $others),
+            'modified' => $owner['modified'],
+            'saved_by' => $latest['user'] ?? '',
+        ]);
+    }
+
+    /** DELETE /maw-builder/presence?session=&<owner params>  (sent when the editor closes) */
+    public function releasePresence(ServerRequestInterface $request): ResponseInterface
+    {
+        $params = $request->getQueryParams();
+        $owner = $this->resolveOwner($request, $params);
+        $session = (string) ($params['session'] ?? '');
+        if (PresenceStore::validSession($session)) {
+            (new PresenceStore($this->grav))->release($owner['owner'], $session);
+        }
+
+        return ApiResponse::noContent();
+    }
+
+    /* ================================================================ paste: media copy */
+
+    /**
+     * POST /maw-builder/media/copy  {from: <owner params>, to: <owner params>, files: [filename, ...]}
+     * Copies media referenced by blocks pasted from another page / Flex object into the destination's folder.
+     * → {copied, skipped, missing, refused}
+     */
+    public function copyMedia(ServerRequestInterface $request): ResponseInterface
+    {
+        $body = $this->getRequestBody($request);
+        if (!is_array($body['from'] ?? null) || !is_array($body['to'] ?? null) || !is_array($body['files'] ?? null)) {
+            throw new ValidationException('`from`, `to` and `files` are required.');
+        }
+        $from = $this->mediaFolderOf($this->resolveOwner($request, $body['from']));
+        $to = $this->mediaFolderOf($this->resolveOwner($request, $body['to']));
+        if (!$from || !$to) {
+            throw new ValidationException('Media can only be copied between pages and folder-stored Flex objects.');
+        }
+        if (realpath($from) === realpath($to)) {
+            return ApiResponse::create(['copied' => [], 'skipped' => array_values($body['files']), 'missing' => [], 'refused' => []]);
+        }
+
+        return ApiResponse::create(MediaCopy::copy($from, $to, $body['files']));
+    }
+
+    private function mediaFolderOf(array $owner): ?string
+    {
+        if ($owner['kind'] === 'page') {
+            $path = $owner['page']->path();
+            return $path && is_dir($path) ? $path : null;
+        }
+
+        return $owner['kind'] === 'flex' ? ($owner['media_folder'] ?? null) : null;
+    }
+
+    /**
+     * Stable string for comparing block lists: keys sorted, empty values dropped, scalars as strings
+     * (Admin2 may store `true`/`1`/`'1'` or omit an empty field; none of that is a real difference).
+     */
+    public static function comparable(mixed $value): string
+    {
+        $normalize = function (mixed $v) use (&$normalize): mixed {
+            if (is_array($v)) {
+                $list = array_is_list($v);
+                $out = [];
+                foreach ($v as $k => $item) {
+                    $item = $normalize($item);
+                    if ($item === null || $item === '' || $item === []) {
+                        if ($list) {
+                            $out[] = null;
+                        }
+                        continue;
+                    }
+                    $out[$k] = $item;
+                }
+                if (!$list) {
+                    ksort($out);
+                }
+
+                return $out;
+            }
+            if (is_bool($v)) {
+                return $v ? '1' : '0';
+            }
+
+            return $v === null ? null : (string) $v;
+        };
+
+        return (string) json_encode($normalize($value));
+    }
+
+    /** Global sections render inside cached Flex output: drop those render caches and let others hook in. */
+    private function sectionChanged(string $id, string $action): void
+    {
+        try {
+            $flex = $this->grav['flex_objects'] ?? null;
+            if ($flex) {
+                foreach ($flex->getDirectories() as $directory) {
+                    if ($directory->isEnabled()) {
+                        $directory->getCache('render')->clear();
+                    }
+                }
+            }
+        } catch (\Throwable $e) {
+            $this->grav['log']->warning('maw-builder: could not clear Flex render cache: ' . $e->getMessage());
+        }
+        $this->fireEvent('onMawGlobalSectionChanged', ['id' => $id, 'action' => $action]);
     }
 
     /* ================================================================ helpers */
@@ -266,7 +448,8 @@ class BuilderController extends AbstractApiController
                 throw new NotFoundException("Global section '{$id}' not found.");
             }
 
-            return ['kind' => 'section', 'owner' => 'section:' . $id, 'title' => $section['title'], 'saved' => $section['blocks']];
+            return ['kind' => 'section', 'owner' => 'section:' . $id, 'title' => $section['title'], 'saved' => $section['blocks'],
+                'modified' => (int) $section['updated'], 'id' => $id];
         }
 
         if ($context === 'flex') {
@@ -281,13 +464,16 @@ class BuilderController extends AbstractApiController
         if (!$page) {
             throw new NotFoundException("Page not found at route: {$route}");
         }
-        $saved = $page->header()->blocks ?? [];
+        $field = in_array($params['field'] ?? 'blocks', ['blocks', 'blocks_after'], true) ? (string) ($params['field'] ?? 'blocks') : 'blocks';
+        $saved = $page->header()->{$field} ?? [];
+        $file = $page->filePath();
 
         return [
             'kind' => 'page',
             'owner' => 'page:' . $page->route(),
             'title' => (string) $page->title(),
             'saved' => is_array($saved) && array_is_list($saved) ? $saved : [],
+            'modified' => $file && is_file($file) ? (int) filemtime($file) : (int) $page->modified(),
             'page' => $page,
         ];
     }
@@ -325,13 +511,16 @@ class BuilderController extends AbstractApiController
             $resolved = $locator->isStream($folder) ? $locator->findResource($folder, true, true) : $folder;
             $mediaFolder = $resolved && is_dir($resolved) ? $resolved : null;
         }
-        $saved = $object->getProperty('blocks');
+        $field = in_array($params['field'] ?? 'blocks', ['blocks', 'blocks_after'], true) ? (string) ($params['field'] ?? 'blocks') : 'blocks';
+        $saved = $object->getProperty($field);
 
         return [
             'kind' => 'flex',
             'owner' => 'flex:' . $type . '/' . $object->getKey(),
             'title' => (string) ($object->getProperty('title') ?? $object->getProperty('name') ?? $directory->getTitle()),
             'saved' => is_array($saved) && array_is_list($saved) ? $saved : [],
+            'modified' => (int) $object->getTimestamp(),
+            'object' => $object,
             'type' => $type,
             'key' => (string) $object->getKey(),
             'media_folder' => $mediaFolder,

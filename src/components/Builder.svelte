@@ -10,6 +10,7 @@
   import Dialog from './Dialog.svelte';
   import History from './History.svelte';
   import MediaLibrary from './fields/MediaLibrary.svelte';
+  import { avatar } from '../lib/presence.svelte.js';
 
   let { store, close } = $props();
 
@@ -24,13 +25,34 @@
     store.load();
     const onKey = (e) => handleKey(e);
     const openInserter = () => (leftTab = 'blocks');
+    // Ctrl/Cmd+V: the paste event carries clipboard text without asking for clipboard permission.
+    const onPaste = (e) => {
+      if (!store.open || dialog || store.modal || store.imagePick || inEditable(e)) return;
+      const text = e.clipboardData?.getData('text/plain') || '';
+      store.pasteBlocks(text).then((handled) => { if (!handled) store.flash('The clipboard has no blocks. Copy blocks in a builder first.'); });
+      e.preventDefault();
+    };
+    const onPreviewPaste = (e) => {
+      if (!dialog && !store.imagePick) store.pasteBlocks(e.detail).then((handled) => { if (!handled) store.flash('The clipboard has no blocks.'); });
+    };
+    const onStorage = () => store.refreshClipboard();
     window.addEventListener('keydown', onKey, true);
+    document.addEventListener('paste', onPaste, true);
+    document.addEventListener('maw-paste-text', onPreviewPaste);
     document.addEventListener('maw-open-inserter', openInserter);
+    window.addEventListener('storage', onStorage);
+    window.addEventListener('focus', onStorage);
     return () => {
       window.removeEventListener('keydown', onKey, true);
+      document.removeEventListener('paste', onPaste, true);
+      document.removeEventListener('maw-paste-text', onPreviewPaste);
       document.removeEventListener('maw-open-inserter', openInserter);
+      window.removeEventListener('storage', onStorage);
+      window.removeEventListener('focus', onStorage);
     };
   });
+
+  const presence = $derived(store.presence);
 
   function inEditable(e) {
     const el = e.composedPath()[0];
@@ -46,33 +68,88 @@
     if (mod && key === 'y' && !inEditable(e)) { e.preventDefault(); e.stopPropagation(); store.redo(); return; }
     if (mod && e.code === 'Backslash') { e.preventDefault(); e.stopPropagation(); e.altKey ? (rightOpen = !rightOpen) : (leftOpen = !leftOpen); return; }
     if (store.imagePick) { if (key === 'escape') { store.imagePick = null; e.stopPropagation(); } return; }
-    if (dialog) { if (key === 'escape') { dialog = null; e.stopPropagation(); } return; }
+    if (dialog) { if (key === 'escape') { dialog.resolve?.(null); dialog = null; e.stopPropagation(); } return; }
+    if (store.modal) { if (key === 'escape') { store.modal.close(); e.stopPropagation(); } return; }
     if (inEditable(e)) return;
-    if (key === 'escape') { e.stopPropagation(); store.selected >= 0 ? (store.selected = -1) : requestClose(); return; }
+    if (key === 'escape') {
+      e.stopPropagation();
+      if (store.selection.length > 1) store.select(store.selected);
+      else if (store.selected >= 0) store.select(-1);
+      else requestClose();
+      return;
+    }
+    if (mod && key === 'a') { e.preventDefault(); e.stopPropagation(); store.selectAll(); return; }
     if (store.selected < 0) return;
-    if (key === 'delete' || key === 'backspace') { e.preventDefault(); e.stopPropagation(); store.remove(store.selected); }
-    else if (mod && key === 'd') { e.preventDefault(); e.stopPropagation(); store.duplicate(store.selected); }
-    else if (e.altKey && key === 'arrowup') { e.preventDefault(); store.move(store.selected, store.selected - 1); }
-    else if (e.altKey && key === 'arrowdown') { e.preventDefault(); store.move(store.selected, store.selected + 1); }
+    const sel = store.selection;
+    if (key === 'delete' || key === 'backspace') { e.preventDefault(); e.stopPropagation(); store.removeMany(sel); }
+    else if (mod && key === 'd') { e.preventDefault(); e.stopPropagation(); store.duplicateMany(sel); }
+    else if (mod && key === 'c') { e.preventDefault(); e.stopPropagation(); store.copyBlocks(sel); }
+    else if (mod && key === 'x') { e.preventDefault(); e.stopPropagation(); store.cutBlocks(sel); }
+    else if (e.altKey && key === 'arrowup') { e.preventDefault(); store.moveSelection(-1); }
+    else if (e.altKey && key === 'arrowdown') { e.preventDefault(); store.moveSelection(1); }
   }
 
   /**
    * Save through Admin2's own Ctrl/Cmd+S handler, so validation, revisions and events all run as usual.
    * The value has already been pushed to the form by every edit.
    */
-  function update() {
+  async function update() {
     if (store.isSection) return saveSection();
+    if (store.readOnly || store.saving) return;
+    const blocks = store.snapshot();
+    const wasDirty = store.dirty;
     const ev = new KeyboardEvent('keydown', { key: 's', code: 'KeyS', ctrlKey: !isMac, metaKey: isMac, bubbles: true, cancelable: true });
     ev.__mawSave = true;
     window.dispatchEvent(ev);
-    store.dirty = false;
-    store.flash('Saving page…');
-    // The revision is recorded server-side when Admin2's save completes.
-    setTimeout(() => store.revisionTick++, 1800);
+    // Nothing of ours to confirm (other form fields may still be saving through Admin2): just take the new base.
+    if (!wasDirty) { setTimeout(() => store.refreshBase(), 2500); return; }
+    if (await store.confirmSaved(blocks)) {
+      presence?.acknowledgeStale();
+      store.flash('Saved');
+    }
   }
 
+  /** Someone else saved since we loaded: reload their version (discarding ours) or keep editing ours. */
+  async function reloadStale() {
+    if (store.isSection) {
+      await store.reloadSection();
+      presence?.acknowledgeStale();
+      return;
+    }
+    const ok = await askConfirm({
+      title: 'Load the latest version?',
+      message: 'The admin page reloads with the saved version. Your unsaved changes on this page are discarded.',
+      choices: [{ label: 'Cancel', value: false }, { label: 'Reload page', value: true, primary: true }],
+    });
+    if (ok) {
+      store.clearBackup();
+      store.dirty = false;
+      location.reload();
+    }
+  }
+
+  /** Save the global section; if someone else saved it meanwhile, let the editor choose. */
   async function saveSection() {
-    try { await store.saveSection(); } catch (e) { store.flash(e.message); }
+    if (store.readOnly) return;
+    try {
+      await store.saveSection();
+    } catch (e) {
+      if (e.status !== 409) { store.flash(e.message); return false; }
+      const choice = await askConfirm({
+        title: 'Global section changed meanwhile',
+        message: `${e.message} Overwrite their changes with yours, or load their version (your edits are discarded)?`,
+        choices: [{ label: 'Cancel', value: null }, { label: 'Load their version', value: 'reload' }, { label: 'Overwrite', value: 'force', primary: true }],
+      });
+      try {
+        if (choice === 'force') await store.saveSection(true);
+        else if (choice === 'reload') { await store.reloadSection(); return false; }
+        else return false;
+      } catch (e2) {
+        store.flash(e2.message);
+        return false;
+      }
+    }
+    return true;
   }
 
   /** Leave global-section editing and go back to the page (asks if there are unsaved section edits). */
@@ -84,9 +161,8 @@
         choices: [{ label: 'Cancel', value: null }, { label: 'Discard', value: 'discard' }, { label: 'Save & go back', value: 'save', primary: true }],
       });
       if (!choice) return;
-      if (choice === 'save') {
-        try { await store.saveSection(); } catch (e) { store.flash(e.message); return; }
-      }
+      if (choice === 'save' && !(await saveSection())) return;
+      if (choice === 'discard') store.clearBackup();
     }
     store.closeSection();
   }
@@ -103,13 +179,14 @@
       title: '',
       category: 'section',
       scope: store.selected >= 0 ? 'selected' : 'all',
+      indexes: [...store.selection],
     };
   }
 
   async function confirmPattern() {
     const d = dialog;
     if (!d.title.trim()) return;
-    const indexes = d.scope === 'selected' ? [store.selected] : store.blocks.map((_, i) => i);
+    const indexes = d.scope === 'selected' ? d.indexes : store.blocks.map((_, i) => i);
     try {
       await store.savePattern(d.title.trim(), d.category, indexes);
       store.flash(`Pattern “${d.title.trim()}” saved`);
@@ -204,11 +281,24 @@
     </div>
 
     <div class="right">
+      {#if presence?.others.length}
+        <div class="avatars" role="group" aria-label="Also open">
+          {#each presence.others.slice(0, 4) as person (person.session)}
+            {@const a = avatar(person)}
+            <span class="avatar" class:editing={person.editing} style:background={a.color}
+                  title="{a.name} {person.editing ? 'is editing' : 'has this open'}">{a.initials}</span>
+          {/each}
+          {#if presence.others.length > 4}<span class="avatar more">+{presence.others.length - 4}</span>{/if}
+        </div>
+        <div class="sep"></div>
+      {/if}
+      <button type="button" class="mb-btn ghost icon" title="Copy selected blocks (Ctrl+C)" disabled={store.selected < 0} onclick={() => store.copyBlocks()}><Icon name="copy" size={15} /></button>
+      <button type="button" class="mb-btn ghost icon" title="Paste blocks (Ctrl+V)" disabled={!store.clipboardAvailable || store.readOnly} onclick={() => store.pasteBlocks()}><Icon name="clipboard" size={15} /></button>
       <button type="button" class="mb-btn ghost icon" title="Refresh preview" onclick={() => canvas?.refresh()}><Icon name="refresh" size={15} /></button>
       {#if !store.isSection}
         <button type="button" class="mb-btn" onclick={savePatternDialog} disabled={!store.blocks.length}><Icon name="template" size={15} /> Save as pattern</button>
-        <button type="button" class="mb-btn primary" onclick={update} title="Save page (Ctrl+S)">
-          <Icon name="save" size={15} /> Update
+        <button type="button" class="mb-btn primary" onclick={update} title="Save page (Ctrl+S)" disabled={store.saving || store.readOnly}>
+          {#if store.saving}<span class="mini-spin"></span> Saving…{:else}<Icon name="save" size={15} /> Update{/if}
         </button>
       {:else}
         <button type="button" class="mb-btn" onclick={backToPage}><Icon name="back" size={15} /> Back to page</button>
@@ -226,6 +316,52 @@
       <Icon name="globe" size={16} />
       <span>Editing global section <strong>{store.editingSection?.title}</strong>. Changes apply everywhere it's used{#if store.editingSection?.usage?.length} ({store.editingSection.usage.length} {store.editingSection.usage.length === 1 ? 'place' : 'places'}){/if}.</span>
       <button type="button" class="link" onclick={backToPage}>Back to page</button>
+    </div>
+  {/if}
+
+  {#if store.readOnly}
+    {@const editors = presence?.editors || []}
+    <div class="notice lock-notice" role="status">
+      <Icon name="lock" size={15} />
+      <span>
+        {#if editors.length}
+          <strong>{editors.map((p) => avatar(p).name).join(', ')}</strong> {editors.length === 1 ? 'is' : 'are'} editing this {store.isSection ? 'global section' : 'page'}. You're viewing read-only so you don't overwrite each other.
+        {:else}
+          The other editor has left. You can edit now.
+        {/if}
+      </span>
+      <button type="button" class="link" onclick={() => presence?.editAnyway()}>{editors.length ? 'Edit anyway' : 'Start editing'}</button>
+    </div>
+  {:else if presence?.joined}
+    <div class="notice lock-notice" role="alert">
+      <Icon name="users" size={15} />
+      <span><strong>{avatar(presence.joined).name}</strong> started editing this {store.isSection ? 'global section' : 'page'} too. Coordinate before saving, or one of you will overwrite the other.</span>
+      <button type="button" class="link" onclick={() => (presence.joined = null)}>OK</button>
+    </div>
+  {/if}
+
+  {#if presence?.stale && !store.saving}
+    <div class="notice stale-notice" role="alert">
+      <Icon name="history" size={15} />
+      <span>{presence.stale.by ? `${presence.stale.by} saved` : 'A newer version was saved'} at {new Date(presence.stale.modified * 1000).toLocaleTimeString(undefined, { timeStyle: 'short' })}, after you opened this. Saving now would replace their changes.</span>
+      <button type="button" class="link" onclick={reloadStale}>Load latest</button>
+      <button type="button" class="link" onclick={() => presence.acknowledgeStale()}>Keep mine</button>
+    </div>
+  {/if}
+
+  {#if store.saveError}
+    <div class="notice error-notice" role="alert">
+      <Icon name="x" size={15} />
+      <span>{store.saveError}</span>
+      <button type="button" class="link" onclick={update}>Try again</button>
+      <button type="button" class="link" onclick={() => (store.saveError = '')}>Dismiss</button>
+    </div>
+  {:else if store.recovery}
+    <div class="notice recovery-notice" role="status">
+      <Icon name="history" size={15} />
+      <span>Unsaved changes from {new Date(store.recovery.time).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' })} were found in this browser.</span>
+      <button type="button" class="link" onclick={() => store.restoreRecovery()}>Restore</button>
+      <button type="button" class="link" onclick={() => store.clearBackup()}>Discard</button>
     </div>
   {/if}
 
@@ -264,7 +400,9 @@
       <!-- svelte-ignore a11y_no_noninteractive_tabindex, a11y_no_noninteractive_element_interactions -->
       <div class="resize-handle" role="separator" aria-orientation="vertical" aria-label="Resize settings panel" aria-valuenow={rightWidth} aria-valuemin={RIGHT_MIN} aria-valuemax={RIGHT_MAX} tabindex="0"
            title="Drag to resize · double-click to reset" onpointerdown={startResize} ondblclick={() => (rightWidth = RIGHT_DEFAULT)} onkeydown={resizeByKey}></div>
-      <Inspector {store} {askConfirm} />
+      <div class="inspector-wrap" inert={store.readOnly}>
+        <Inspector {store} {askConfirm} savePattern={savePatternDialog} />
+      </div>
     </aside>
   </div>
 
@@ -287,7 +425,7 @@
         <div>
           <span class="mb-label">Contains</span>
           <select class="mb-input" bind:value={dialog.scope}>
-            {#if store.selected >= 0}<option value="selected">Selected block only</option>{/if}
+            {#if store.selected >= 0}<option value="selected">{dialog.indexes.length > 1 ? `Selected blocks (${dialog.indexes.length})` : 'Selected block only'}</option>{/if}
             <option value="all">All {store.blocks.length} blocks on this page</option>
           </select>
         </div>
@@ -317,11 +455,27 @@
 </div>
 
 <style>
-  .builder { position: absolute; inset: 0; display: grid; grid-template-rows: 52px 1fr; background: var(--mb-muted); }
-  .builder.section-mode { grid-template-rows: 52px auto 1fr; }
+  .builder { position: absolute; inset: 0; display: flex; flex-direction: column; background: var(--mb-muted); }
+  .builder > .top { flex: none; height: 52px; }
+  .builder > .body { flex: 1; }
+  .notice { flex: none; display: flex; align-items: center; gap: 8px; padding: 8px 14px; font-size: 13px; }
+  .notice span { flex: 1; }
+  .notice .link { border: 1px solid currentColor; background: transparent; color: inherit; border-radius: 6px; padding: 3px 10px; font-weight: 600; }
+  .error-notice { background: #fee2e2; color: #991b1b; }
+  .recovery-notice { background: #fef3c7; color: #92400e; }
+  .lock-notice { background: #ffedd5; color: #9a3412; }
+  .stale-notice { background: #fee2e2; color: #991b1b; }
+  .avatars { display: flex; align-items: center; padding-inline-start: 6px; }
+  .avatar { display: grid; place-items: center; width: 26px; height: 26px; margin-inline-start: -6px; border-radius: 50%; border: 2px solid var(--mb-card); color: #fff; font-size: 10.5px; font-weight: 700; cursor: default; }
+  .avatar.editing { box-shadow: 0 0 0 2px #f97316; }
+  .avatar.more { background: var(--mb-muted); color: var(--mb-muted-fg); }
+  .inspector-wrap { display: flex; flex-direction: column; flex: 1; min-height: 0; }
+  .inspector-wrap[inert] { opacity: 0.6; }
+  .mini-spin { width: 13px; height: 13px; border-radius: 50%; border: 2px solid rgb(255 255 255 / 0.35); border-top-color: currentColor; animation: mbspin 700ms linear infinite; }
+  @keyframes mbspin { to { transform: rotate(360deg); } }
   .section-mode .top { box-shadow: inset 0 -3px 0 #7c3aed; }
   .section-mode .logo { background: #7c3aed; }
-  .section-banner { display: flex; align-items: center; gap: 8px; padding: 8px 14px; background: #7c3aed; color: #fff; font-size: 13px; }
+  .section-banner { flex: none; display: flex; align-items: center; gap: 8px; padding: 8px 14px; background: #7c3aed; color: #fff; font-size: 13px; }
   .section-banner span { flex: 1; }
   .section-banner .link { border: 1px solid rgb(255 255 255 / 0.5); background: rgb(255 255 255 / 0.12); color: #fff; border-radius: 6px; padding: 4px 10px; font-weight: 600; }
   .global-save { background: #7c3aed; border-color: #7c3aed; }

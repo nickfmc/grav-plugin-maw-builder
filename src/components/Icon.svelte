@@ -43,6 +43,10 @@
     back: 'M19 12H5M12 19l-7-7 7-7',
     'panel-left': 'M3 4h18v16H3zM9 4v16',
     'panel-right': 'M3 4h18v16H3zM15 4v16',
+    clipboard: 'M9 2h6v4H9zM16 4h3v18H5V4h3',
+    lock: 'M5 11h14v11H5zM8 11V7a4 4 0 0 1 8 0v4',
+    users: 'M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8zM22 21v-2a4 4 0 0 0-3-3.9M16 3.1a4 4 0 0 1 0 7.8',
+    select: 'M3 3h18v18H3zM8 12l3 3 5-6',
   };
 
   // Font Awesome names used by block blueprints → closest UI glyph.

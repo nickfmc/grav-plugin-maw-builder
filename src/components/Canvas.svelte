@@ -99,11 +99,18 @@
   let lastSelected = -1;
   $effect(() => {
     const sel = store.selected;
+    const multi = [...store.multi];
     const changed = sel !== lastSelected;
     lastSelected = sel;
     // While a render is pending the visible frame is stale (indexes may have shifted): apply after the swap.
     if (stale) { if (changed) scrollToSelection = true; return; }
-    els[active]?.contentWindow?.postMessage({ source: 'maw-builder', type: 'select', index: sel, scroll: changed }, location.origin);
+    els[active]?.contentWindow?.postMessage({ source: 'maw-builder', type: 'select', index: sel, multi, scroll: changed }, location.origin);
+  });
+
+  // Soft lock: the preview turns inline editing off while read-only.
+  $effect(() => {
+    const value = store.readOnly;
+    if (!stale) els[active]?.contentWindow?.postMessage({ source: 'maw-builder', type: 'readonly', value }, location.origin);
   });
 
   onMount(() => {
@@ -117,7 +124,8 @@
         if (from !== active) {
           // Restore scroll, then swap the freshly rendered frame in.
           e.source.postMessage({ source: 'maw-builder', type: 'scrollTo', y: scrollY }, location.origin);
-          e.source.postMessage({ source: 'maw-builder', type: 'select', index: store.selected, scroll: scrollToSelection, behavior: 'smooth' }, location.origin);
+          e.source.postMessage({ source: 'maw-builder', type: 'select', index: store.selected, multi: [...store.multi], scroll: scrollToSelection, behavior: 'smooth' }, location.origin);
+          e.source.postMessage({ source: 'maw-builder', type: 'readonly', value: store.readOnly }, location.origin);
           scrollToSelection = false;
           const focus = store.pendingFocus;
           store.pendingFocus = null;
@@ -137,16 +145,22 @@
       if (from !== active) return;
       if (d.type === 'rects') { rects = d.rects; scrollY = d.scrollY || 0; }
       else if (d.type === 'hover') hover = d.index;
-      else if (d.type === 'select') store.selected = d.index;
+      else if (d.type === 'select') {
+        if (d.range) store.rangeSelect(d.index);
+        else if (d.toggle) store.toggleSelect(d.index);
+        else store.select(d.index);
+      }
+      else if (d.type === 'key') window.dispatchEvent(new KeyboardEvent('keydown', { key: d.key, code: d.code, ctrlKey: d.ctrlKey, metaKey: d.metaKey, shiftKey: d.shiftKey, altKey: d.altKey, bubbles: true, cancelable: true }));
+      else if (d.type === 'paste') document.dispatchEvent(new CustomEvent('maw-paste-text', { detail: String(d.text || '') }));
       else if (d.type === 'inline') store.inlineSet(d.index, d.path, String(d.value ?? ''));
       else if (d.type === 'inline-md') store.inlineSetMarkdown(d.index, d.path, String(d.value ?? ''));
       else if (d.type === 'list-op') store.listOp(d);
-      else if (d.type === 'image-pick') { store.selected = d.index; store.imagePick = { index: d.index, path: d.path }; }
+      else if (d.type === 'image-pick') { store.select(d.index); store.imagePick = { index: d.index, path: d.path }; }
       else if (d.type === 'md-request') {
         const value = store.getPath(d.index, d.path);
         e.source.postMessage({ source: 'maw-builder', type: 'md-value', req: d.req, value: typeof value === 'string' ? value : '' }, location.origin);
       }
-      else if (d.type === 'inline-start') { store.inlineEditing = true; store.selected = d.index; }
+      else if (d.type === 'inline-start') { store.inlineEditing = true; if (store.selected !== d.index || store.selection.length > 1) store.select(d.index); }
       else if (d.type === 'inline-end') store.inlineEditing = false;
     };
     window.addEventListener('message', onMessage);
@@ -224,14 +238,20 @@
         {/if}
 
         {#if selRect && !dragging}
+          {@const sel = store.selection}
           <div class="toolbar" style:top="{Math.max(6, selRect.top + 6)}px">
-            <span class="name">{typeTitle(store.selected)}</span>
-            <button type="button" title="Move up (Alt+↑)" disabled={store.selected === 0} onclick={() => store.move(store.selected, store.selected - 1)}><Icon name="up" size={14} /></button>
-            <button type="button" title="Move down (Alt+↓)" disabled={store.selected === store.blocks.length - 1} onclick={() => store.move(store.selected, store.selected + 1)}><Icon name="down" size={14} /></button>
-            <button type="button" title="Duplicate (Ctrl+D)" onclick={() => store.duplicate(store.selected)}><Icon name="copy" size={14} /></button>
-            <button type="button" title="Delete (Del)" class="danger" onclick={() => store.remove(store.selected)}><Icon name="trash" size={14} /></button>
+            <span class="name">{sel.length > 1 ? `${sel.length} blocks selected` : typeTitle(store.selected)}</span>
+            {#if !store.readOnly}
+              <button type="button" title="Move up (Alt+↑)" disabled={sel[0] === 0} onclick={() => store.moveSelection(-1)}><Icon name="up" size={14} /></button>
+              <button type="button" title="Move down (Alt+↓)" disabled={sel.at(-1) === store.blocks.length - 1} onclick={() => store.moveSelection(1)}><Icon name="down" size={14} /></button>
+              <button type="button" title="Duplicate (Ctrl+D)" onclick={() => store.duplicateMany(sel)}><Icon name="copy" size={14} /></button>
+            {/if}
+            <button type="button" title="Copy (Ctrl+C)" onclick={() => store.copyBlocks(sel)}><Icon name="clipboard" size={14} /></button>
+            {#if !store.readOnly}
+              <button type="button" title="Delete (Del)" class="danger" onclick={() => store.removeMany(sel)}><Icon name="trash" size={14} /></button>
+            {/if}
           </div>
-          {#if !quick}
+          {#if !quick && !store.readOnly && sel.length === 1}
             <button type="button" class="add-gap" style:top="{addTop}px" title="Add block below"
                     onclick={() => (quick = { index: store.selected + 1, top: addTop + 18 })}>
               <Icon name="plus" size={16} /><span>Add block</span>

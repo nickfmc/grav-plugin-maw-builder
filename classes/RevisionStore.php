@@ -16,7 +16,8 @@ use Grav\Common\Grav;
  */
 class RevisionStore
 {
-    public function __construct(private readonly Grav $grav)
+    /** @param string|null $baseDir storage folder override (tests); default user://data/maw-builder/revisions */
+    public function __construct(private readonly Grav $grav, private readonly ?string $baseDir = null)
     {
     }
 
@@ -47,7 +48,7 @@ class RevisionStore
             'hash' => $hash,
             'blocks' => $blocks,
         ];
-        file_put_contents($dir . '/' . $id . '.json', json_encode($data, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE));
+        Files::write($dir . '/' . $id . '.json', (string) json_encode($data, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE));
         $this->prune($owner);
         unset($data['blocks']);
 
@@ -101,8 +102,8 @@ class RevisionStore
 
     private function dir(string $owner, bool $create): string
     {
-        $base = (string) $this->grav['locator']->findResource('user://data', true, $create);
-        $dir = $base . '/maw-builder/revisions/' . substr(sha1($owner), 0, 16);
+        $base = $this->baseDir ?? (string) $this->grav['locator']->findResource('user://data', true, $create) . '/maw-builder/revisions';
+        $dir = $base . '/' . substr(sha1($owner), 0, 16);
         if ($create && !is_dir($dir)) {
             mkdir($dir, 0775, true);
         }

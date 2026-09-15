@@ -2,6 +2,7 @@
   // Inspector for a `global` block: which section it shows, where that section is used, edit / detach.
   import { onMount } from 'svelte';
   import Icon from './Icon.svelte';
+  import StyleControls from './fields/StyleControls.svelte';
   import { api } from '../lib/api.js';
 
   let { store, block, index, askConfirm } = $props();
@@ -63,6 +64,10 @@
     <button type="button" class="mb-btn primary" disabled={!section} onclick={edit}><Icon name="edit" size={14} /> Edit global section</button>
     <button type="button" class="mb-btn" disabled={!section} onclick={detach} title="Replace with an editable copy on this page"><Icon name="unlink" size={14} /> Detach</button>
   </div>
+
+  {#if store.catalog?.settings}
+    <StyleControls {block} {store} settings={store.catalog.settings} mode="visibility" />
+  {/if}
 
   {#if id}
     <div class="usage">

@@ -5,8 +5,18 @@
   import StyleControls from './fields/StyleControls.svelte';
   import GlobalInspector from './GlobalInspector.svelte';
 
-  let { store, askConfirm } = $props();
+  let { store, askConfirm, savePattern = () => {} } = $props();
   let tab = $state('content');
+  const selection = $derived(store.selection);
+
+  async function removeSelection() {
+    const ok = await askConfirm({
+      title: `Delete ${selection.length} blocks?`,
+      message: 'You can undo this with Ctrl+Z.',
+      choices: [{ label: 'Cancel', value: false }, { label: 'Delete', value: true, primary: true }],
+    });
+    if (ok) store.removeMany(selection);
+  }
 
   const block = $derived(store.selected >= 0 ? store.blocks[store.selected] : null);
   const def = $derived(block ? store.defFor(block.type) : null);
@@ -21,12 +31,12 @@
   let globalName = $state('');
   let makingGlobal = $state(false);
 
-  async function makeGlobal() {
+  async function makeGlobal(indexes = [store.selected]) {
     const title = globalName.trim();
     if (!title) return;
     makingGlobal = true;
     try {
-      const section = await store.makeGlobal([store.selected], title);
+      const section = await store.makeGlobal(indexes, title);
       globalName = '';
       store.flash(`“${section.title}” is now a global section. Insert it on other pages from Patterns → Global.`);
     } catch (e) {
@@ -47,7 +57,42 @@
   }
 </script>
 
-{#if !block}
+{#if selection.length > 1}
+  <header>
+    <span class="ico"><Icon name="select" size={16} /></span>
+    <div class="h">
+      <strong>{selection.length} blocks selected</strong>
+      <span>{selection.map((i) => store.defFor(store.blocks[i]?.type)?.title || store.blocks[i]?.type).join(' · ')}</span>
+    </div>
+    <button type="button" class="mb-btn ghost icon sm" title="Clear selection (Esc)" onclick={() => store.select(-1)}><Icon name="x" size={14} /></button>
+  </header>
+  <div class="body mb-scroll">
+    <div class="multi-actions">
+      <button type="button" class="mb-btn" disabled={selection[0] === 0} onclick={() => store.moveSelection(-1)}><Icon name="up" size={14} /> Move up</button>
+      <button type="button" class="mb-btn" disabled={selection.at(-1) === store.blocks.length - 1} onclick={() => store.moveSelection(1)}><Icon name="down" size={14} /> Move down</button>
+      <button type="button" class="mb-btn" onclick={() => store.duplicateMany(selection)}><Icon name="copy" size={14} /> Duplicate</button>
+      <button type="button" class="mb-btn" onclick={() => store.copyBlocks(selection)}><Icon name="clipboard" size={14} /> Copy</button>
+      <button type="button" class="mb-btn" onclick={savePattern}><Icon name="template" size={14} /> Save as pattern</button>
+      <button type="button" class="mb-btn danger" onclick={removeSelection}><Icon name="trash" size={14} /> Delete</button>
+    </div>
+    <p class="mb-help">Shift+click selects a range, Ctrl/Cmd+click adds or removes a block. Copy, then paste with Ctrl+V on any page's builder.</p>
+
+    {#if !store.isSection}
+      {@const regular = selection.filter((i) => store.blocks[i]?.type !== 'global')}
+      <div class="make-global">
+        <span class="mb-label">Make global section</span>
+        <p class="mb-help">Turn {regular.length === selection.length ? `these ${regular.length} blocks` : `the ${regular.length} regular blocks`} into one shared section, placed where the first one is.</p>
+        <div class="row">
+          <input class="mb-input" placeholder="Name, e.g. Services band" bind:value={globalName}
+                 onkeydown={(e) => e.key === 'Enter' && makeGlobal(regular)} />
+          <button type="button" class="mb-btn primary" disabled={!globalName.trim() || makingGlobal || !regular.length} onclick={() => makeGlobal(regular)}>
+            <Icon name="globe" size={14} /> {makingGlobal ? 'Creating…' : 'Create'}
+          </button>
+        </div>
+      </div>
+    {/if}
+  </div>
+{:else if !block}
   <div class="none">
     <Icon name="settings" size={26} />
     <strong>No block selected</strong>
@@ -64,7 +109,7 @@
       <strong>{def.title}</strong>
       <span>{def.description}</span>
     </div>
-    <button type="button" class="mb-btn ghost icon sm" title="Deselect" onclick={() => (store.selected = -1)}><Icon name="x" size={14} /></button>
+    <button type="button" class="mb-btn ghost icon sm" title="Deselect" onclick={() => store.select(-1)}><Icon name="x" size={14} /></button>
   </header>
 
   {#if block.type === 'global'}
@@ -101,7 +146,7 @@
             <div class="row">
               <input class="mb-input" placeholder="Name, e.g. Footer call to action" bind:value={globalName}
                      onkeydown={(e) => e.key === 'Enter' && makeGlobal()} />
-              <button type="button" class="mb-btn primary" disabled={!globalName.trim() || makingGlobal} onclick={makeGlobal}>
+              <button type="button" class="mb-btn primary" disabled={!globalName.trim() || makingGlobal} onclick={() => makeGlobal()}>
                 <Icon name="globe" size={14} /> {makingGlobal ? 'Creating…' : 'Create'}
               </button>
             </div>
@@ -132,4 +177,7 @@
   .make-global { margin-top: 18px; padding: 10px; border-radius: 8px; border: 1px dashed color-mix(in srgb, #7c3aed 45%, var(--mb-border)); background: color-mix(in srgb, #7c3aed 5%, transparent); }
   .make-global .row { display: flex; gap: 6px; margin-top: 8px; }
   .make-global .mb-help { margin-top: 0; }
+  .multi-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-bottom: 10px; }
+  .multi-actions .mb-btn { justify-content: flex-start; }
+  .multi-actions .danger { color: var(--mb-danger); }
 </style>
