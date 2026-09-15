@@ -7,6 +7,8 @@ use Grav\Common\Page\Page;
 use Grav\Common\Plugin;
 use Grav\Plugin\MawBuilder\Controllers\BuilderController;
 use Grav\Plugin\MawBuilder\PreviewDraft;
+use Grav\Plugin\MawBuilder\RevisionStore;
+use Grav\Plugin\MawBuilder\SectionStore;
 use RocketTheme\Toolbox\Event\Event;
 
 /**
@@ -33,8 +35,52 @@ class MawBuilderPlugin extends Plugin
             'onPageInitialized'      => ['onPageInitialized', 100],
             'onTwigSiteVariables'    => ['onTwigSiteVariables', 0],
             'onTwigTemplatePaths'    => ['onTwigTemplatePaths', 0],
+            'onTwigInitialized'      => ['onTwigInitialized', 0],
             'onAdminSave'            => ['onAdminSave', 0],
+            'onAdminAfterSave'       => ['onAdminAfterSave', 0],
         ];
+    }
+
+    /**
+     * Twig helpers used by templates/blocks/global.html.twig and the theme:
+     *   maw_global_section(id)  → {id, title, blocks} or null
+     *   maw_preview_active()    → true while rendering inside the builder preview
+     */
+    public function onTwigInitialized(): void
+    {
+        $env = $this->grav['twig']->twig;
+        $env->addFunction(new \Twig\TwigFunction('maw_global_section', fn ($id) => (new SectionStore($this->grav))->get((string) $id)));
+        $env->addFunction(new \Twig\TwigFunction('maw_preview_active', fn () => isset($this->grav['maw_preview'])));
+    }
+
+    /**
+     * Revision history: snapshot `blocks` after every save of a page or Flex object (duplicates are skipped).
+     * Fired by the API for page updates/creates and by the Flex Objects API for object updates/creates.
+     */
+    public function onAdminAfterSave(Event $event): void
+    {
+        $object = $event['object'] ?? null;
+        try {
+            $user = (string) ($this->grav['user']->username ?? '');
+        } catch (\Throwable) {
+            $user = ''; // resolving the user can require a full web request (e.g. remember-me login)
+        }
+        try {
+            if ($object instanceof \Grav\Common\Page\Interfaces\PageInterface) {
+                $blocks = $object->header()->blocks ?? null;
+                if (is_array($blocks) && array_is_list($blocks)) {
+                    (new RevisionStore($this->grav))->record('page:' . $object->route(), $blocks, $user);
+                }
+            } elseif (is_object($object) && method_exists($object, 'getFlexType') && method_exists($object, 'getProperty')) {
+                $blocks = $object->getProperty('blocks');
+                if (is_array($blocks) && array_is_list($blocks)) {
+                    (new RevisionStore($this->grav))->record('flex:' . $object->getFlexType() . '/' . $object->getKey(), $blocks, $user);
+                }
+            }
+        } catch (\Throwable $e) {
+            // History must never break saving.
+            $this->grav['log']->warning('maw-builder: could not record revision: ' . $e->getMessage());
+        }
     }
 
     /**
@@ -84,6 +130,13 @@ class MawBuilderPlugin extends Plugin
             $r->post('/patterns', [BuilderController::class, 'savePattern']);
             $r->delete('/patterns/{id}', [BuilderController::class, 'deletePattern']);
             $r->post('/preview', [BuilderController::class, 'preview']);
+            $r->get('/revisions', [BuilderController::class, 'revisions']);
+            $r->get('/revisions/{id}', [BuilderController::class, 'revision']);
+            $r->get('/sections', [BuilderController::class, 'sections']);
+            $r->post('/sections', [BuilderController::class, 'createSection']);
+            $r->get('/sections/{id}', [BuilderController::class, 'section']);
+            $r->patch('/sections/{id}', [BuilderController::class, 'updateSection']);
+            $r->delete('/sections/{id}', [BuilderController::class, 'deleteSection']);
         });
     }
 

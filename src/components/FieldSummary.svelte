@@ -56,7 +56,7 @@
           <span class="ico"><Icon fa={def?.icon || 'fa-square'} size={15} /></span>
           <button type="button" class="row" onclick={() => openBuilder(i)}>
             <strong>{def?.title || block.type}</strong>
-            <span class="text">{blockSummary(block)}</span>
+            <span class="text">{block.type === 'global' ? store.sectionTitle(block.global?.section) : blockSummary(block)}</span>
           </button>
           {#if block.hidden}<span class="badge">Hidden</span>{/if}
         </li>

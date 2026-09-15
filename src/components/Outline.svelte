@@ -31,7 +31,7 @@
       <button type="button" class="row" onclick={() => (store.selected = i)}>
         <Icon fa={def?.icon} size={14} />
         <span class="t">{def?.title || block.type}</span>
-        <span class="s">{blockSummary(block)}</span>
+        <span class="s">{block.type === 'global' ? store.sectionTitle(block.global?.section) : blockSummary(block)}</span>
       </button>
       <span class="actions">
         <button type="button" class="mb-btn ghost icon sm" title={block.hidden ? 'Show' : 'Hide'} onclick={() => store.toggleHidden(i)}><Icon name={block.hidden ? 'eye-off' : 'eye'} size={13} /></button>

@@ -37,6 +37,37 @@ export function fieldDefault(field) {
   return undefined;
 }
 
+/**
+ * New item for a `list` (repeater) field. Priority:
+ *   1. the schema's `new_item:` template (theme-declared starter content), merged over
+ *   2. field `default:` values, then
+ *   3. placeholders so the item is visible and self-explanatory: first text field "New <noun>",
+ *      other text fields their label, URL fields "#".
+ */
+export function newListItem(field, noun = 'item') {
+  const item = {};
+  const subfields = field?.fields || [];
+  for (const f of subfields) {
+    const d = fieldDefault(f);
+    if (d !== undefined && d !== '' && !(Array.isArray(d) && !d.length)) item[f.name] = d;
+  }
+  if (field?.new_item && typeof field.new_item === 'object' && !Array.isArray(field.new_item)) {
+    Object.assign(item, clone(field.new_item));
+  }
+  let first = true;
+  for (const f of subfields) {
+    if (item[f.name] !== undefined) {
+      if (['text', 'textarea', 'markdown'].includes(f.type)) first = false;
+      continue;
+    }
+    if (/(^|_)url$/.test(f.name)) { item[f.name] = '#'; continue; }
+    if (!['text', 'textarea', 'markdown'].includes(f.type)) continue;
+    item[f.name] = first ? `New ${noun}` : String(f.label || f.name).replace(/\s*\(.*\)\s*$/, '');
+    first = false;
+  }
+  return item;
+}
+
 /** New block from the catalogue. Uses the schema example when available so it looks good immediately. */
 export function createBlock(def, useExample = true) {
   const content = {};

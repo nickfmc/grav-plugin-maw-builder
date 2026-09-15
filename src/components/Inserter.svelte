@@ -8,7 +8,7 @@
 
   const groups = $derived.by(() => {
     const q = query.trim().toLowerCase();
-    const list = (store.catalog?.blocks || []).filter((b) =>
+    const list = (store.catalog?.blocks || []).filter((b) => !b.virtual).filter((b) =>
       !q || b.title.toLowerCase().includes(q) || b.type.includes(q) || (b.description || '').toLowerCase().includes(q));
     const order = Object.keys(CATEGORY_LABELS);
     const map = new Map();

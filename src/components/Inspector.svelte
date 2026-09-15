@@ -3,6 +3,7 @@
   import Icon from './Icon.svelte';
   import FieldControl from './fields/FieldControl.svelte';
   import StyleControls from './fields/StyleControls.svelte';
+  import GlobalInspector from './GlobalInspector.svelte';
 
   let { store, askConfirm } = $props();
   let tab = $state('content');
@@ -16,6 +17,23 @@
       block[block.type] = {};
     }
   });
+
+  let globalName = $state('');
+  let makingGlobal = $state(false);
+
+  async function makeGlobal() {
+    const title = globalName.trim();
+    if (!title) return;
+    makingGlobal = true;
+    try {
+      const section = await store.makeGlobal([store.selected], title);
+      globalName = '';
+      store.flash(`“${section.title}” is now a global section. Insert it on other pages from Patterns → Global.`);
+    } catch (e) {
+      store.flash(e.message);
+    }
+    makingGlobal = false;
+  }
 
   async function switchType(e) {
     const type = e.currentTarget.value;
@@ -34,6 +52,7 @@
     <Icon name="settings" size={26} />
     <strong>No block selected</strong>
     <p>Click a section in the preview, or pick one in the Outline, to edit its content and style.</p>
+    <p class="tip">Tip: click any heading, label or button text in the preview to type directly on the page.</p>
     <p class="keys"><span class="mb-kbd">Ctrl+Z</span> undo · <span class="mb-kbd">Ctrl+S</span> save · <span class="mb-kbd">Del</span> remove</p>
   </div>
 {:else if !def}
@@ -48,6 +67,11 @@
     <button type="button" class="mb-btn ghost icon sm" title="Deselect" onclick={() => (store.selected = -1)}><Icon name="x" size={14} /></button>
   </header>
 
+  {#if block.type === 'global'}
+  <div class="body mb-scroll">
+    {#key store.selected}<GlobalInspector {store} {block} index={store.selected} {askConfirm} />{/key}
+  </div>
+  {:else}
   <div class="tabs">
     <button type="button" class:active={tab === 'content'} onclick={() => (tab = 'content')}>Content</button>
     <button type="button" class:active={tab === 'style'} onclick={() => (tab = 'style')}>Style</button>
@@ -67,12 +91,26 @@
         <div class="field">
           <label class="mb-label" for="mb-type">Block type</label>
           <select id="mb-type" class="mb-input" value={block.type} onchange={switchType}>
-            {#each store.catalog.blocks as b}<option value={b.type}>{b.title}</option>{/each}
+            {#each store.catalog.blocks.filter((b) => !b.virtual) as b}<option value={b.type}>{b.title}</option>{/each}
           </select>
         </div>
+        {#if !store.isSection}
+          <div class="make-global">
+            <span class="mb-label">Make global section</span>
+            <p class="mb-help">Share this block across pages. Edit it once and every page that uses it updates.</p>
+            <div class="row">
+              <input class="mb-input" placeholder="Name, e.g. Footer call to action" bind:value={globalName}
+                     onkeydown={(e) => e.key === 'Enter' && makeGlobal()} />
+              <button type="button" class="mb-btn primary" disabled={!globalName.trim() || makingGlobal} onclick={makeGlobal}>
+                <Icon name="globe" size={14} /> {makingGlobal ? 'Creating…' : 'Create'}
+              </button>
+            </div>
+          </div>
+        {/if}
       {/if}
     {/key}
   </div>
+  {/if}
 {/if}
 
 <style>
@@ -90,4 +128,8 @@
   .tabs button.active { color: var(--mb-fg); border-bottom-color: var(--mb-primary); }
   .body { flex: 1; min-height: 0; padding: 14px 12px 40px; }
   .field { margin-top: 14px; }
+  .tip { font-size: 12px; color: var(--mb-fg) !important; opacity: 0.8; margin-top: 8px !important; }
+  .make-global { margin-top: 18px; padding: 10px; border-radius: 8px; border: 1px dashed color-mix(in srgb, #7c3aed 45%, var(--mb-border)); background: color-mix(in srgb, #7c3aed 5%, transparent); }
+  .make-global .row { display: flex; gap: 6px; margin-top: 8px; }
+  .make-global .mb-help { margin-top: 0; }
 </style>

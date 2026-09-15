@@ -16,7 +16,9 @@ class BlockRegistry
 {
     /** Field keys passed through to the UI untouched. */
     private const PASS = ['type', 'label', 'title', 'help', 'description', 'placeholder', 'default', 'rows', 'size',
-        'min', 'max', 'step', 'accept', 'multiple', 'markdown', 'btnLabel', 'collapsed', 'toggleable'];
+        'min', 'max', 'step', 'accept', 'multiple', 'markdown', 'btnLabel', 'collapsed', 'toggleable',
+        // list fields: starter content for items added in the builder
+        'new_item'];
 
     private string $dir;
 
@@ -70,6 +72,18 @@ class BlockRegistry
         }
         usort($blocks, fn ($a, $b) => strcmp($a['title'], $b['title']));
 
+        // Provided by this plugin, not the theme: a reference to a global (synced) section.
+        $blocks[] = [
+            'type' => 'global',
+            'title' => 'Global section',
+            'description' => 'A synced section edited once and shown everywhere it is placed.',
+            'icon' => 'fa-globe',
+            'category' => 'global',
+            'virtual' => true,
+            'example' => null,
+            'fields' => [['name' => 'section', 'type' => 'global-section', 'label' => 'Global section']],
+        ];
+
         $categories = array_values(array_unique(array_column($blocks, 'category')));
 
         return [
@@ -88,6 +102,10 @@ class BlockRegistry
 
     public function has(string $type): bool
     {
+        if ($type === 'global') {
+            return true;
+        }
+
         return preg_match('/^[a-z0-9][a-z0-9-]*$/', $type) === 1 && is_file($this->dir . '/blocks/' . $type . '.yaml');
     }
 

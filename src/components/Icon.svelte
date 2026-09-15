@@ -36,6 +36,13 @@
     star: 'm12 2 3 7 7 .6-5.3 4.7 1.6 7.2L12 17.8 5.7 21.5l1.6-7.2L2 9.6 9 9z',
     sparkles: 'M12 3l1.9 5.1L19 10l-5.1 1.9L12 17l-1.9-5.1L5 10l5.1-1.9zM19 17l.8 2.2L22 20l-2.2.8L19 23l-.8-2.2L16 20l2.2-.8z',
     refresh: 'M21 12a9 9 0 1 1-2.6-6.4L21 8M21 3v5h-5',
+    globe: 'M12 22a10 10 0 1 0 0-20 10 10 0 0 0 0 20zM2 12h20M12 2a15 15 0 0 1 0 20M12 2a15 15 0 0 0 0 20',
+    history: 'M3 12a9 9 0 1 0 3-6.7L3 8M3 3v5h5M12 7v5l3 2',
+    unlink: 'M9 17H7A5 5 0 0 1 7 7h2M15 7h2a5 5 0 0 1 4 8M8 12h3M2 2l20 20',
+    edit: 'M12 20h9M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z',
+    back: 'M19 12H5M12 19l-7-7 7-7',
+    'panel-left': 'M3 4h18v16H3zM9 4v16',
+    'panel-right': 'M3 4h18v16H3zM15 4v16',
   };
 
   // Font Awesome names used by block blueprints → closest UI glyph.
@@ -43,7 +50,7 @@
     'fa-star': 'star', 'fa-align-left': 'type', 'fa-table-cells-large': 'blocks', 'fa-bullhorn': 'sparkles',
     'fa-image': 'image', 'fa-clone': 'copy', 'fa-chart-simple': 'list', 'fa-quote-left': 'type',
     'fa-circle-question': 'list', 'fa-tags': 'template', 'fa-building': 'blocks', 'fa-images': 'image',
-    'fa-list': 'list', 'fa-envelope': 'type', 'fa-play': 'monitor', 'fa-arrows-up-down': 'grip', 'fa-square': 'blocks',
+    'fa-list': 'list', 'fa-envelope': 'type', 'fa-play': 'monitor', 'fa-arrows-up-down': 'grip', 'fa-square': 'blocks', 'fa-globe': 'globe',
   };
 
   const d = $derived(P[fa ? FA[fa] || 'blocks' : name] || P.blocks);

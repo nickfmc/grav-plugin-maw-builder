@@ -1,6 +1,28 @@
-/* MAW Builder preview bridge: selection outlines inside the builder iframe. */
+/* MAW Builder preview bridge: selection outlines and inline-editing affordances inside the builder iframe. */
 .maw-preview [data-block-index] { position: relative; cursor: pointer; }
 .maw-preview [data-block-index].maw-is-hover { outline: 2px dashed rgb(59 130 246 / 0.7); outline-offset: -2px; }
 .maw-preview [data-block-index].maw-is-selected { outline: 2px solid rgb(37 99 235); outline-offset: -2px; }
 .maw-preview .site-header--sticky { position: relative; }
-.maw-preview html, html.maw-preview { scroll-behavior: auto !important; }
+html.maw-preview { scroll-behavior: auto !important; }
+
+/* Inline-editable text: subtle cue on hover, clear caret box while typing */
+.maw-preview [data-maw-edit] { cursor: text; border-radius: 3px; transition: box-shadow 120ms, background-color 120ms; }
+.maw-preview [data-maw-edit]:hover { box-shadow: 0 0 0 2px rgb(37 99 235 / 0.35); background-color: rgb(37 99 235 / 0.06); }
+.maw-preview [data-maw-edit].maw-is-editing { outline: none; box-shadow: 0 0 0 2px #2563eb, 0 0 0 6px rgb(37 99 235 / 0.18); background-color: rgb(255 255 255 / 0.08); cursor: text; min-width: 1ch; }
+/* Markdown fields: same cues; the editing box gets a little padding room */
+.maw-preview [data-maw-edit-md] { cursor: text; border-radius: 4px; transition: box-shadow 120ms, background-color 120ms; }
+.maw-preview [data-maw-edit-md]:hover { box-shadow: 0 0 0 2px rgb(37 99 235 / 0.35); background-color: rgb(37 99 235 / 0.05); }
+.maw-preview [data-maw-edit-md].maw-is-editing { outline: none; box-shadow: 0 0 0 2px #2563eb, 0 0 0 6px rgb(37 99 235 / 0.18); cursor: text; }
+.maw-preview [data-maw-global] [data-maw-edit-md] { cursor: pointer; box-shadow: none !important; background: none !important; }
+.maw-preview [data-maw-global] [data-maw-edit] { cursor: pointer; box-shadow: none !important; background: none !important; }
+
+/* Click-to-replace images (outline + badge are drawn by the bridge) */
+.maw-preview [data-maw-edit-image] > * { cursor: pointer; }
+.maw-preview [data-maw-global] [data-maw-edit-image] > * { cursor: pointer; }
+
+/* Global (synced) sections: labelled outline so editors know they're shared */
+.maw-preview [data-maw-global] { position: relative; }
+.maw-preview [data-maw-global]::before { content: "Global section"; position: absolute; z-index: 5; top: 6px; left: 6px; font: 600 11px/1 system-ui, sans-serif; padding: 4px 7px; border-radius: 4px; background: #7c3aed; color: #fff; pointer-events: none; opacity: 0; transition: opacity 120ms; }
+.maw-preview [data-maw-global]:hover::before, .maw-preview [data-maw-global].maw-is-selected::before { opacity: 1; }
+.maw-preview [data-maw-global].maw-is-hover { outline-color: rgb(124 58 237 / 0.8); }
+.maw-preview [data-maw-global].maw-is-selected { outline-color: #7c3aed; }

@@ -36,6 +36,13 @@ export function routeSegment(route) {
   return String(route || '').replace(/^\/+/, '').split('/').map(encodeURIComponent).join('/');
 }
 
+/** Query/body parameters that identify what's being edited. */
+function ownerParams(ctx) {
+  if (ctx.kind === 'flex') return { context: 'flex', type: ctx.type, key: ctx.key };
+  if (ctx.kind === 'section') return { context: 'section', id: ctx.id };
+  return { context: 'page', route: ctx.route };
+}
+
 function ownMediaPath(ctx) {
   return ctx.kind === 'flex'
     ? `/flex-objects/${encodeURIComponent(ctx.type)}/${encodeURIComponent(ctx.key)}/media`
@@ -47,11 +54,19 @@ export const api = {
   patterns: () => request('GET', '/maw-builder/patterns'),
   savePattern: (pattern) => request('POST', '/maw-builder/patterns', pattern),
   deletePattern: (id) => request('DELETE', '/maw-builder/patterns/' + encodeURIComponent(id)),
-  /** ctx: {kind:'page', route} | {kind:'flex', type, key} */
-  preview: (ctx, blocks, field) => request('POST', '/maw-builder/preview',
-    ctx.kind === 'flex' ? { context: 'flex', type: ctx.type, key: ctx.key, blocks, field } : { route: ctx.route, blocks, field }),
-  /** Media stored with the page or Flex object being edited. */
-  ownMedia: (ctx) => request('GET', ownMediaPath(ctx)),
+  /** ctx: {kind:'page', route} | {kind:'flex', type, key} | {kind:'section', id} */
+  preview: (ctx, blocks, field) => request('POST', '/maw-builder/preview', { ...ownerParams(ctx), blocks, field }),
+  /** Media stored with the page or Flex object being edited (global sections have none: they use the site library). */
+  ownMedia: (ctx) => (ctx.kind === 'section' ? Promise.resolve([]) : request('GET', ownMediaPath(ctx))),
+
+  revisions: (ctx) => request('GET', '/maw-builder/revisions?' + new URLSearchParams(ownerParams(ctx))),
+  revision: (ctx, id) => request('GET', `/maw-builder/revisions/${encodeURIComponent(id)}?` + new URLSearchParams(ownerParams(ctx))),
+
+  sections: () => request('GET', '/maw-builder/sections'),
+  section: (id) => request('GET', `/maw-builder/sections/${encodeURIComponent(id)}`),
+  createSection: (title, blocks) => request('POST', '/maw-builder/sections', { title, blocks }),
+  updateSection: (id, data) => request('PATCH', `/maw-builder/sections/${encodeURIComponent(id)}`, data),
+  deleteSection: (id, force = false) => request('DELETE', `/maw-builder/sections/${encodeURIComponent(id)}${force ? '?force=1' : ''}`),
   uploadOwnMedia: (ctx, files) => {
     const fd = new FormData();
     [...files].forEach((f) => fd.append('files[]', f));

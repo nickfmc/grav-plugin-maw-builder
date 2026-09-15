@@ -7,7 +7,8 @@
 
   let { store, current = '', onselect, onclose } = $props();
 
-  let tab = $state(current && String(current).startsWith('user://media') ? 'site' : 'page');
+  // Global sections appear on many pages, so their images must come from the shared site library.
+  let tab = $state(store.isSection || (current && String(current).startsWith('user://media')) ? 'site' : 'page');
   let pageFiles = $state([]);
   let siteFiles = $state([]);
   let siteFolders = $state([]);
@@ -90,7 +91,7 @@
        ondrop={(e) => { e.preventDefault(); dragOver = false; upload(e.dataTransfer.files); }}>
     <div class="bar">
       <div class="seg">
-        <button type="button" class:active={tab === 'page'} onclick={() => switchTab('page')}>{store.isFlex ? 'This item' : 'This page'}</button>
+        {#if !store.isSection}<button type="button" class:active={tab === 'page'} onclick={() => switchTab('page')}>{store.isFlex ? 'This item' : 'This page'}</button>{/if}
         <button type="button" class:active={tab === 'site'} onclick={() => switchTab('site')}>Site library</button>
         <button type="button" class:active={tab === 'url'} onclick={() => (tab = 'url')}>From URL</button>
       </div>

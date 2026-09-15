@@ -1,0 +1,19 @@
+{#
+  Global (synced) section reference, provided by the maw-builder plugin:
+    - type: global
+      global: { section: footer-cta }
+  Renders the section's blocks through the theme's blocks/_render.html.twig. Nested blocks don't get their own
+  data-block-index (`maw_nested`), so the builder selects the whole global section as one block.
+#}
+{% set section = not maw_nested|default(false) and block.section ? maw_global_section(block.section) : null %}
+{% if section %}
+    <div class="maw-global" data-block="global" data-maw-global="{{ section.id|e }}"{% if index is defined %} data-block-index="{{ index - 1 }}"{% endif %}>
+        {% include 'blocks/_render.html.twig' with {blocks: section.blocks, maw_nested: true} %}
+    </div>
+{% elseif config.system.debugger.enabled or grav.user.authenticated or maw_preview_active() %}
+    <div class="maw-global maw-global--missing" data-block="global"{% if index is defined %} data-block-index="{{ index - 1 }}"{% endif %}>
+        <div class="container" style="padding: 2rem 0">
+            <p class="notices">{{ block.section ? 'Global section “' ~ block.section|e ~ '” not found.' : 'Choose a global section for this block.' }}</p>
+        </div>
+    </div>
+{% endif %}

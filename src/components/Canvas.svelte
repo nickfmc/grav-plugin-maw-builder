@@ -28,6 +28,22 @@
   // Busy while a render is pending or loading: dims the page and says what is happening.
   const stale = $derived(loading || !!store.busy);
 
+  // Status pill: appears only if an update lasts > 250 ms, and keeps its last label while fading out.
+  let showBusy = $state(false);
+  let busyLabel = $state('Updating preview…');
+  let busyTimer = 0;
+  $effect(() => {
+    if (stale) {
+      if (store.busy) busyLabel = store.busy;
+      else if (loading && !store.blocks.length) busyLabel = 'Loading preview…';
+      clearTimeout(busyTimer);
+      if (!showBusy) busyTimer = setTimeout(() => (showBusy = true), 250);
+    } else {
+      clearTimeout(busyTimer);
+      showBusy = false;
+    }
+  });
+
   function settle() {
     loading = false;
     store.busy = '';
@@ -48,6 +64,12 @@
     if (!store.canPreview) return;
     const blocks = store.snapshot();
     const payload = JSON.stringify(blocks);
+    if (payload === store.renderedPayload) {
+      // Typed inline on the canvas: the preview already shows it.
+      lastSent = payload;
+      if (!loading) settle();
+      return;
+    }
     if (payload === lastSent) {
       // Nothing changed (e.g. an edit was reverted before the render): don't leave the busy state up.
       if (!loading) settle();
@@ -97,9 +119,13 @@
           e.source.postMessage({ source: 'maw-builder', type: 'scrollTo', y: scrollY }, location.origin);
           e.source.postMessage({ source: 'maw-builder', type: 'select', index: store.selected, scroll: scrollToSelection, behavior: 'smooth' }, location.origin);
           scrollToSelection = false;
+          const focus = store.pendingFocus;
+          store.pendingFocus = null;
           requestAnimationFrame(() => {
             active = from;
             settle();
+            // A repeater item was just added: jump straight into typing its text.
+            if (focus) e.source.postMessage({ source: 'maw-builder', type: 'focus-edit', index: focus.index, path: focus.path }, location.origin);
           });
         } else {
           settle();
@@ -112,13 +138,24 @@
       if (d.type === 'rects') { rects = d.rects; scrollY = d.scrollY || 0; }
       else if (d.type === 'hover') hover = d.index;
       else if (d.type === 'select') store.selected = d.index;
+      else if (d.type === 'inline') store.inlineSet(d.index, d.path, String(d.value ?? ''));
+      else if (d.type === 'inline-md') store.inlineSetMarkdown(d.index, d.path, String(d.value ?? ''));
+      else if (d.type === 'list-op') store.listOp(d);
+      else if (d.type === 'image-pick') { store.selected = d.index; store.imagePick = { index: d.index, path: d.path }; }
+      else if (d.type === 'md-request') {
+        const value = store.getPath(d.index, d.path);
+        e.source.postMessage({ source: 'maw-builder', type: 'md-value', req: d.req, value: typeof value === 'string' ? value : '' }, location.origin);
+      }
+      else if (d.type === 'inline-start') { store.inlineEditing = true; store.selected = d.index; }
+      else if (d.type === 'inline-end') store.inlineEditing = false;
     };
     window.addEventListener('message', onMessage);
     schedule(0);
     return () => { window.removeEventListener('message', onMessage); clearTimeout(timer); };
   });
 
-  const selRect = $derived(stale ? null : rects.find((r) => r.index === store.selected));
+  // Hide the floating toolbar while typing on the canvas so it never covers the text.
+  const selRect = $derived(stale || store.inlineEditing ? null : rects.find((r) => r.index === store.selected));
   const addTop = $derived(selRect ? Math.min(selRect.top + selRect.height, stageHeight - 24) : 0);
   const hoverRect = $derived(hover !== store.selected ? rects.find((r) => r.index === hover) : null);
 
@@ -164,14 +201,18 @@
 
   $effect(() => { if (!store.dragType) dropAt = -1; });
 
-  const typeTitle = (i) => store.defFor(store.blocks[i]?.type)?.title || store.blocks[i]?.type || '';
+  const typeTitle = (i) => {
+    const b = store.blocks[i];
+    if (b?.type === 'global') return 'Global · ' + store.sectionTitle(b.global?.section);
+    return store.defFor(b?.type)?.title || b?.type || '';
+  };
 </script>
 
 <div class="viewport">
   <div class="device" class:framed={!!width} style:width={width ? width + 'px' : '100%'}>
     <div class="stage" bind:this={stage} bind:clientHeight={stageHeight}>
       {#each frames as frame, i (frame.key)}
-        <iframe bind:this={els[i]} src={frame.src} title="Page preview" class:hidden={i !== active} class:stale={i === active && stale}
+        <iframe bind:this={els[i]} src={frame.src} title="Page preview" class:hidden={i !== active}
                 sandbox="allow-same-origin allow-scripts"></iframe>
       {/each}
 
@@ -204,9 +245,7 @@
         {/if}
 
         {#if store.pendingInsert && stale}
-          <div class="ghost" style:top="{gapY(store.pendingInsert.index)}px">
-            <span class="spinner"></span> Adding {store.pendingInsert.title}…
-          </div>
+          <div class="insert-line" style:top="{gapY(store.pendingInsert.index)}px"></div>
         {/if}
 
         {#if dragging}
@@ -217,13 +256,6 @@
           {/if}
         {/if}
       </div>
-
-      {#if stale}
-        <div class="progress"></div>
-        <div class="busy-pill" role="status" aria-live="polite">
-          <span class="spinner"></span>{store.busy || 'Updating preview…'}
-        </div>
-      {/if}
 
       {#if !store.blocks.length && !loading}
         <div class="blank">
@@ -236,6 +268,12 @@
       {#if error}<div class="error">Preview failed: {error}</div>{/if}
     </div>
   </div>
+</div>
+
+<!-- Quiet status indicator, bottom-right of the canvas. Shown only when an update takes longer than a blink. -->
+<div class="busy" class:on={showBusy} role="status" aria-live="polite">
+  <span class="spinner"></span>
+  <span>{busyLabel}</span>
 </div>
 
 <style>
@@ -258,29 +296,26 @@
   .add-gap:hover { transform: translate(-50%, -50%) scale(1.06); background: #1e40af; }
   .quick-line { position: absolute; left: 12px; right: 12px; height: 3px; margin-top: -1px; background: #2563eb; border-radius: 2px; }
 
-  /* Busy state: dim the stale page, big progress bar, status pill, placeholder where a block is being added */
-  iframe { transition: opacity 180ms ease, filter 180ms ease; }
-  iframe.stale { opacity: 0.45; filter: grayscale(0.5) blur(1.5px); }
-  .busy-pill { position: absolute; top: 18px; left: 50%; transform: translateX(-50%); z-index: 11; display: inline-flex; align-items: center; gap: 10px;
-               padding: 10px 18px 10px 14px; border-radius: 99px; background: #1d4ed8; color: #fff; font-size: 13.5px; font-weight: 650;
-               box-shadow: 0 10px 30px rgb(29 78 216 / 0.45); pointer-events: none; animation: pill-in 160ms ease-out; white-space: nowrap; }
-  @keyframes pill-in { from { opacity: 0; transform: translate(-50%, -8px); } }
-  .spinner { width: 16px; height: 16px; border-radius: 50%; border: 2.5px solid rgb(255 255 255 / 0.35); border-top-color: #fff; animation: spin 700ms linear infinite; flex: none; }
+  /* Busy state: a small status pill bottom-right, and a pulsing line where a new block will land */
+  .busy { position: absolute; right: 22px; bottom: 22px; z-index: 30; width: 100px; height: 100px; box-sizing: border-box;
+          display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 9px; padding: 10px;
+          border-radius: 30px; color: #fff; text-align: center; pointer-events: none;
+          background: linear-gradient(135deg, #a855f7 0%, #7c3aed 50%, #4f46e5 100%);
+          box-shadow: 0 14px 34px rgb(124 58 237 / 0.45), inset 0 1px 0 rgb(255 255 255 / 0.25);
+          font-size: 11px; font-weight: 650; line-height: 1.2;
+          opacity: 0; transform: translateY(10px) scale(0.92); transition: opacity 200ms ease, transform 200ms cubic-bezier(0.2, 0.9, 0.3, 1.3); }
+  .busy.on { opacity: 1; transform: none; }
+  .busy span:last-child { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; max-width: 100%; }
+  .spinner { width: 34px; height: 34px; border-radius: 50%; border: 3.5px solid rgb(255 255 255 / 0.28); border-top-color: #fff; animation: spin 700ms linear infinite; flex: none; }
   @keyframes spin { to { transform: rotate(360deg); } }
-  .ghost { position: absolute; left: 16px; right: 16px; height: 96px; margin-top: 8px; z-index: 10; display: flex; align-items: center; justify-content: center; gap: 10px;
-           border: 2px dashed #2563eb; border-radius: 12px; color: #1d4ed8; font-weight: 700; font-size: 14px;
-           background: repeating-linear-gradient(-45deg, rgb(37 99 235 / 0.10) 0 12px, rgb(37 99 235 / 0.18) 12px 24px);
-           background-size: 200% 200%; animation: stripes 1s linear infinite; }
-  .ghost .spinner { border-color: rgb(29 78 216 / 0.25); border-top-color: #1d4ed8; }
-  @keyframes stripes { to { background-position: 34px 0; } }
+  .insert-line { position: absolute; left: 12px; right: 12px; height: 3px; margin-top: -1px; border-radius: 2px; background: #2563eb; animation: pulse 900ms ease-in-out infinite; }
+  @keyframes pulse { 50% { opacity: 0.35; } }
+  @media (prefers-reduced-motion: reduce) { .spinner, .insert-line { animation: none; } }
 
   .drop-catcher { position: absolute; inset: 0; pointer-events: auto; background: rgb(37 99 235 / 0.04); }
   .drop-line { position: absolute; left: 12px; right: 12px; height: 4px; margin-top: -2px; border-radius: 2px; background: #2563eb; }
   .drop-line span { position: absolute; left: 50%; top: -24px; transform: translateX(-50%); background: #2563eb; color: #fff; padding: 2px 8px; border-radius: 4px; font-size: 11px; font-weight: 600; white-space: nowrap; }
 
-  .progress { position: absolute; top: 0; left: 0; right: 0; height: 6px; overflow: hidden; background: rgb(37 99 235 / 0.2); z-index: 11; }
-  .progress::after { content: ""; position: absolute; inset: 0; width: 40%; background: linear-gradient(90deg, #60a5fa, #2563eb, #60a5fa); animation: slide 800ms ease-in-out infinite; box-shadow: 0 0 12px #2563eb; }
-  @keyframes slide { from { transform: translateX(-100%); } to { transform: translateX(300%); } }
 
   .blank { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; color: #71717a; background: #fff; pointer-events: none; text-align: center; padding: 20px; }
   .blank strong { color: #18181b; font-size: 15px; }

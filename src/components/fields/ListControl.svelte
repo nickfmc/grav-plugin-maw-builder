@@ -2,7 +2,7 @@
   // Repeater for `type: list` fields: collapsible item cards with drag reorder, duplicate and delete.
   import Icon from '../Icon.svelte';
   import FieldControl from './FieldControl.svelte';
-  import { itemSummary, fieldDefault } from '../../lib/blocks.js';
+  import { itemSummary, newListItem } from '../../lib/blocks.js';
 
   let { field, target, store } = $props();
 
@@ -17,14 +17,9 @@
   }
 
   function add() {
-    store.mutate(() => {
-      const item = {};
-      for (const f of field.fields || []) {
-        const d = fieldDefault(f);
-        if (d !== undefined && d !== '') item[f.name] = d;
-      }
-      ensure().push(item);
-    });
+    // Same starter content as the canvas "+ Add" button (theme new_item → defaults → placeholders).
+    const noun = String(field.label || 'item').replace(/s$/i, '').toLowerCase();
+    store.mutate(() => ensure().push(newListItem(field, noun)), 'Adding item…');
     openIndex = items.length - 1;
   }
 

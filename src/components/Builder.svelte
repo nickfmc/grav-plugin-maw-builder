@@ -8,10 +8,12 @@
   import Canvas from './Canvas.svelte';
   import Inspector from './Inspector.svelte';
   import Dialog from './Dialog.svelte';
+  import History from './History.svelte';
+  import MediaLibrary from './fields/MediaLibrary.svelte';
 
   let { store, close } = $props();
 
-  let leftTab = $state('blocks');     // blocks | patterns | outline
+  let leftTab = $state('blocks');     // blocks | patterns | outline | history
   let device = $state('desktop');     // desktop | tablet | mobile
   let dialog = $state(null);          // {kind, ...}
   let canvas = $state();
@@ -39,9 +41,11 @@
     if (!store.open || e.__mawSave) return;
     const mod = isMac ? e.metaKey : e.ctrlKey;
     const key = e.key.toLowerCase();
-    if (mod && key === 's') { e.preventDefault(); e.stopPropagation(); update(); return; }
+    if (mod && key === 's') { e.preventDefault(); e.stopPropagation(); store.isSection ? saveSection() : update(); return; }
     if (mod && key === 'z' && !inEditable(e)) { e.preventDefault(); e.stopPropagation(); e.shiftKey ? store.redo() : store.undo(); return; }
     if (mod && key === 'y' && !inEditable(e)) { e.preventDefault(); e.stopPropagation(); store.redo(); return; }
+    if (mod && e.code === 'Backslash') { e.preventDefault(); e.stopPropagation(); e.altKey ? (rightOpen = !rightOpen) : (leftOpen = !leftOpen); return; }
+    if (store.imagePick) { if (key === 'escape') { store.imagePick = null; e.stopPropagation(); } return; }
     if (dialog) { if (key === 'escape') { dialog = null; e.stopPropagation(); } return; }
     if (inEditable(e)) return;
     if (key === 'escape') { e.stopPropagation(); store.selected >= 0 ? (store.selected = -1) : requestClose(); return; }
@@ -57,14 +61,38 @@
    * The value has already been pushed to the form by every edit.
    */
   function update() {
+    if (store.isSection) return saveSection();
     const ev = new KeyboardEvent('keydown', { key: 's', code: 'KeyS', ctrlKey: !isMac, metaKey: isMac, bubbles: true, cancelable: true });
     ev.__mawSave = true;
     window.dispatchEvent(ev);
     store.dirty = false;
     store.flash('Saving page…');
+    // The revision is recorded server-side when Admin2's save completes.
+    setTimeout(() => store.revisionTick++, 1800);
+  }
+
+  async function saveSection() {
+    try { await store.saveSection(); } catch (e) { store.flash(e.message); }
+  }
+
+  /** Leave global-section editing and go back to the page (asks if there are unsaved section edits). */
+  async function backToPage() {
+    if (store.sectionDirty) {
+      const choice = await askConfirm({
+        title: 'Unsaved global section changes',
+        message: `Save changes to “${store.editingSection?.title}” before going back to the page?`,
+        choices: [{ label: 'Cancel', value: null }, { label: 'Discard', value: 'discard' }, { label: 'Save & go back', value: 'save', primary: true }],
+      });
+      if (!choice) return;
+      if (choice === 'save') {
+        try { await store.saveSection(); } catch (e) { store.flash(e.message); return; }
+      }
+    }
+    store.closeSection();
   }
 
   function requestClose() {
+    if (store.isSection) return backToPage();
     close();
   }
 
@@ -98,6 +126,50 @@
     });
   }
 
+  // ─── panel layout: collapsible sides, resizable inspector (remembered per browser) ───
+  const LAYOUT_KEY = 'maw-builder:layout';
+  const RIGHT_MIN = 280, RIGHT_MAX = 640, RIGHT_DEFAULT = 340, LEFT_WIDTH = 300;
+  const saved = (() => { try { return JSON.parse(localStorage.getItem(LAYOUT_KEY) || '{}'); } catch { return {}; } })();
+  let leftOpen = $state(saved.leftOpen ?? true);
+  let rightOpen = $state(saved.rightOpen ?? true);
+  let rightWidth = $state(Math.min(RIGHT_MAX, Math.max(RIGHT_MIN, Number(saved.rightWidth) || RIGHT_DEFAULT)));
+  let resizing = $state(false);
+
+  $effect(() => {
+    const layout = { leftOpen, rightOpen, rightWidth };
+    try { localStorage.setItem(LAYOUT_KEY, JSON.stringify(layout)); } catch { /* storage unavailable */ }
+  });
+
+  const columns = $derived(`${leftOpen ? LEFT_WIDTH : 0}px minmax(0, 1fr) ${rightOpen ? rightWidth : 0}px`);
+
+  function startResize(e) {
+    if (e.button !== 0) return;
+    e.preventDefault();
+    const handle = e.currentTarget;
+    try { handle.setPointerCapture(e.pointerId); } catch { /* window listeners below still track the drag */ }
+    const startX = e.clientX;
+    const startWidth = rightWidth;
+    // Never let the inspector take more than half the window.
+    const max = Math.min(RIGHT_MAX, Math.round(window.innerWidth * 0.5));
+    resizing = true;
+    const move = (ev) => { rightWidth = Math.min(max, Math.max(RIGHT_MIN, startWidth + (startX - ev.clientX))); };
+    const up = () => {
+      resizing = false;
+      window.removeEventListener('pointermove', move, true);
+      window.removeEventListener('pointerup', up, true);
+      window.removeEventListener('pointercancel', up, true);
+    };
+    window.addEventListener('pointermove', move, true);
+    window.addEventListener('pointerup', up, true);
+    window.addEventListener('pointercancel', up, true);
+  }
+
+  function resizeByKey(e) {
+    const step = e.shiftKey ? 60 : 20;
+    if (e.key === 'ArrowLeft') { e.preventDefault(); rightWidth = Math.min(RIGHT_MAX, rightWidth + step); }
+    else if (e.key === 'ArrowRight') { e.preventDefault(); rightWidth = Math.max(RIGHT_MIN, rightWidth - step); }
+  }
+
   const devices = $derived({
     desktop: null,
     tablet: store.catalog?.devices?.tablet || 820,
@@ -105,20 +177,22 @@
   });
 </script>
 
-<div class="builder">
+<div class="builder" class:section-mode={store.isSection}>
   <header class="top">
     <div class="left">
       <button type="button" class="mb-btn ghost icon" title="Close builder (Esc)" onclick={requestClose}><Icon name="x" /></button>
       <div class="brand">
         <span class="logo"><Icon name="blocks" size={15} /></span>
         <div>
-          <div class="page">{document.title.replace(/\s*[—|-]\s*Grav Admin.*$/, '') || 'Page'}</div>
-          <div class="route">{store.isFlex ? `Flex · ${store.context.type}` : store.route}</div>
+          <div class="page">{store.isSection ? store.editingSection?.title : document.title.replace(/\s*[—|-]\s*Grav Admin.*$/, '') || 'Page'}</div>
+          <div class="route">{store.isSection ? 'Global section' : store.isFlex ? `Flex · ${store.context.type}` : store.route}</div>
         </div>
       </div>
       <div class="sep"></div>
       <button type="button" class="mb-btn ghost icon" title="Undo (Ctrl+Z)" disabled={!store.canUndo} onclick={() => store.undo()}><Icon name="undo" /></button>
       <button type="button" class="mb-btn ghost icon" title="Redo (Ctrl+Shift+Z)" disabled={!store.canRedo} onclick={() => store.redo()}><Icon name="redo" /></button>
+      <div class="sep"></div>
+      <button type="button" class="mb-btn ghost icon" class:on={leftOpen} title={leftOpen ? 'Hide left panel (Ctrl+\)' : 'Show left panel (Ctrl+\)'} aria-pressed={leftOpen} onclick={() => (leftOpen = !leftOpen)}><Icon name="panel-left" size={16} /></button>
     </div>
 
     <div class="devices" role="group" aria-label="Preview width">
@@ -131,19 +205,37 @@
 
     <div class="right">
       <button type="button" class="mb-btn ghost icon" title="Refresh preview" onclick={() => canvas?.refresh()}><Icon name="refresh" size={15} /></button>
-      <button type="button" class="mb-btn" onclick={savePatternDialog} disabled={!store.blocks.length}><Icon name="template" size={15} /> Save as pattern</button>
-      <button type="button" class="mb-btn primary" onclick={update} title="Save page (Ctrl+S)">
-        <Icon name="save" size={15} /> Update
-      </button>
+      {#if !store.isSection}
+        <button type="button" class="mb-btn" onclick={savePatternDialog} disabled={!store.blocks.length}><Icon name="template" size={15} /> Save as pattern</button>
+        <button type="button" class="mb-btn primary" onclick={update} title="Save page (Ctrl+S)">
+          <Icon name="save" size={15} /> Update
+        </button>
+      {:else}
+        <button type="button" class="mb-btn" onclick={backToPage}><Icon name="back" size={15} /> Back to page</button>
+        <button type="button" class="mb-btn primary global-save" onclick={saveSection} disabled={!store.sectionDirty} title="Save global section (Ctrl+S)">
+          <Icon name="globe" size={15} /> {store.sectionDirty ? 'Save section' : 'Saved'}
+        </button>
+      {/if}
+      <div class="sep"></div>
+      <button type="button" class="mb-btn ghost icon" class:on={rightOpen} title={rightOpen ? 'Hide settings panel (Ctrl+Alt+\)' : 'Show settings panel (Ctrl+Alt+\)'} aria-pressed={rightOpen} onclick={() => (rightOpen = !rightOpen)}><Icon name="panel-right" size={16} /></button>
     </div>
   </header>
 
-  <div class="body">
-    <aside class="panel left-panel">
+  {#if store.isSection}
+    <div class="section-banner" role="status">
+      <Icon name="globe" size={16} />
+      <span>Editing global section <strong>{store.editingSection?.title}</strong>. Changes apply everywhere it's used{#if store.editingSection?.usage?.length} ({store.editingSection.usage.length} {store.editingSection.usage.length === 1 ? 'place' : 'places'}){/if}.</span>
+      <button type="button" class="link" onclick={backToPage}>Back to page</button>
+    </div>
+  {/if}
+
+  <div class="body" class:resizing style:grid-template-columns={columns}>
+    <aside class="panel left-panel" class:collapsed={!leftOpen} inert={!leftOpen} aria-hidden={!leftOpen}>
       <div class="tabs" role="tablist">
         <button type="button" role="tab" aria-selected={leftTab === 'blocks'} class:active={leftTab === 'blocks'} onclick={() => (leftTab = 'blocks')}><Icon name="plus" size={14} /> Blocks</button>
         <button type="button" role="tab" aria-selected={leftTab === 'patterns'} class:active={leftTab === 'patterns'} onclick={() => (leftTab = 'patterns')}><Icon name="template" size={14} /> Patterns</button>
         <button type="button" role="tab" aria-selected={leftTab === 'outline'} class:active={leftTab === 'outline'} onclick={() => (leftTab = 'outline')}><Icon name="layers" size={14} /> Outline</button>
+        <button type="button" role="tab" aria-selected={leftTab === 'history'} class:active={leftTab === 'history'} onclick={() => (leftTab = 'history')} title="Saved versions"><Icon name="history" size={14} /> History</button>
       </div>
       <div class="panel-body mb-scroll">
         {#if store.loadError}
@@ -154,20 +246,32 @@
           <Inserter {store} />
         {:else if leftTab === 'patterns'}
           <Patterns {store} {askConfirm} />
-        {:else}
+        {:else if leftTab === 'outline'}
           <Outline {store} />
+        {:else}
+          <History {store} {askConfirm} />
         {/if}
       </div>
     </aside>
 
     <main class="canvas-wrap">
       <Canvas bind:this={canvas} {store} width={devices[device]} />
+      {#if !leftOpen}<button type="button" class="edge-tab left" title="Show left panel" onclick={() => (leftOpen = true)}><Icon name="chevron" size={14} /></button>{/if}
+      {#if !rightOpen}<button type="button" class="edge-tab right" title="Show settings panel" onclick={() => (rightOpen = true)}><Icon name="chevron" size={14} /></button>{/if}
     </main>
 
-    <aside class="panel right-panel">
+    <aside class="panel right-panel" class:collapsed={!rightOpen} inert={!rightOpen} aria-hidden={!rightOpen}>
+      <!-- svelte-ignore a11y_no_noninteractive_tabindex, a11y_no_noninteractive_element_interactions -->
+      <div class="resize-handle" role="separator" aria-orientation="vertical" aria-label="Resize settings panel" aria-valuenow={rightWidth} aria-valuemin={RIGHT_MIN} aria-valuemax={RIGHT_MAX} tabindex="0"
+           title="Drag to resize · double-click to reset" onpointerdown={startResize} ondblclick={() => (rightWidth = RIGHT_DEFAULT)} onkeydown={resizeByKey}></div>
       <Inspector {store} {askConfirm} />
     </aside>
   </div>
+
+  {#if store.imagePick}
+    <MediaLibrary {store} current={store.getPath(store.imagePick.index, store.imagePick.path) || ''}
+                  onselect={(ref) => store.replaceImage(ref)} onclose={() => (store.imagePick = null)} />
+  {/if}
 
   {#if store.toast}
     <div class="toast" role="status">{store.toast}</div>
@@ -214,6 +318,13 @@
 
 <style>
   .builder { position: absolute; inset: 0; display: grid; grid-template-rows: 52px 1fr; background: var(--mb-muted); }
+  .builder.section-mode { grid-template-rows: 52px auto 1fr; }
+  .section-mode .top { box-shadow: inset 0 -3px 0 #7c3aed; }
+  .section-mode .logo { background: #7c3aed; }
+  .section-banner { display: flex; align-items: center; gap: 8px; padding: 8px 14px; background: #7c3aed; color: #fff; font-size: 13px; }
+  .section-banner span { flex: 1; }
+  .section-banner .link { border: 1px solid rgb(255 255 255 / 0.5); background: rgb(255 255 255 / 0.12); color: #fff; border-radius: 6px; padding: 4px 10px; font-weight: 600; }
+  .global-save { background: #7c3aed; border-color: #7c3aed; }
   .top { display: grid; grid-template-columns: 1fr auto 1fr; align-items: center; gap: 12px; padding: 0 10px; background: var(--mb-card); border-bottom: 1px solid var(--mb-border); }
   .left, .right { display: flex; align-items: center; gap: 6px; min-width: 0; }
   .right { justify-content: flex-end; }
@@ -226,12 +337,29 @@
   .devices button { display: grid; place-items: center; width: 34px; height: 28px; border: 0; border-radius: 6px; background: transparent; color: var(--mb-muted-fg); }
   .devices button.active { background: var(--mb-card); color: var(--mb-fg); box-shadow: 0 1px 2px rgb(0 0 0 / 0.12); }
 
-  .body { display: grid; grid-template-columns: 300px 1fr 340px; min-height: 0; }
+  .body { display: grid; grid-template-columns: 300px minmax(0, 1fr) 340px; min-height: 0; transition: grid-template-columns 200ms ease; }
+  .body.resizing { transition: none; cursor: col-resize; user-select: none; }
+  /* The preview iframe would swallow pointer events mid-drag */
+  .body.resizing .canvas-wrap { pointer-events: none; }
+  .panel { overflow: hidden; }
+  .panel.collapsed { border: 0; }
+  .panel.collapsed > :global(*) { visibility: hidden; }
+  .right-panel { position: relative; }
+  .resize-handle { position: absolute; top: 0; bottom: 0; inset-inline-start: -3px; width: 7px; z-index: 5; cursor: col-resize; touch-action: none; }
+  .resize-handle::after { content: ''; position: absolute; top: 0; bottom: 0; left: 3px; width: 1px; background: transparent; transition: background 120ms, width 120ms; }
+  .resize-handle:hover::after, .resize-handle:focus-visible::after, .body.resizing .resize-handle::after { left: 2px; width: 3px; background: var(--mb-primary); }
+  .resize-handle:focus-visible { outline: none; }
+  .edge-tab { position: absolute; top: 50%; z-index: 25; display: grid; place-items: center; width: 18px; height: 56px; margin-top: -28px; padding: 0; border: 1px solid var(--mb-border); background: var(--mb-card); color: var(--mb-muted-fg); box-shadow: var(--mb-shadow); }
+  .edge-tab:hover { color: var(--mb-primary); }
+  .edge-tab.left { left: 0; border-left: 0; border-radius: 0 8px 8px 0; }
+  .edge-tab.right { right: 0; border-right: 0; border-radius: 8px 0 0 8px; }
+  .edge-tab.right :global(svg) { transform: rotate(180deg); }
+  .top .mb-btn.on { color: var(--mb-primary); }
   .panel { background: var(--mb-card); display: flex; flex-direction: column; min-height: 0; }
   .left-panel { border-inline-end: 1px solid var(--mb-border); }
   .right-panel { border-inline-start: 1px solid var(--mb-border); }
   .tabs { display: flex; padding: 8px 8px 0; gap: 2px; border-bottom: 1px solid var(--mb-border); }
-  .tabs button { flex: 1; display: inline-flex; align-items: center; justify-content: center; gap: 5px; padding: 8px 4px; border: 0; background: none; color: var(--mb-muted-fg); font-weight: 600; border-bottom: 2px solid transparent; margin-bottom: -1px; }
+  .tabs button { flex: 1; display: inline-flex; align-items: center; justify-content: center; gap: 4px; padding: 8px 2px; font-size: 12px; border: 0; background: none; color: var(--mb-muted-fg); font-weight: 600; border-bottom: 2px solid transparent; margin-bottom: -1px; }
   .tabs button.active { color: var(--mb-fg); border-bottom-color: var(--mb-primary); }
   .panel-body { flex: 1; min-height: 0; padding: 12px; }
   .canvas-wrap { min-width: 0; min-height: 0; position: relative; }
@@ -242,7 +370,6 @@
   .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 12px; }
 
   @media (max-width: 1100px) {
-    .body { grid-template-columns: 250px 1fr 300px; }
     .page { max-width: 120px; }
   }
 </style>
