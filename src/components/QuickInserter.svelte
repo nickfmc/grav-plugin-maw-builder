@@ -32,8 +32,9 @@
   onMount(() => {
     input?.focus();
     const outside = (e) => { if (!e.composedPath().includes(el)) onclose(); };
-    setTimeout(() => document.addEventListener('pointerdown', outside, true));
-    return () => document.removeEventListener('pointerdown', outside, true);
+    // Deferred so the click that opened the picker does not close it; cancelled if we unmount first.
+    const timer = setTimeout(() => document.addEventListener('pointerdown', outside, true));
+    return () => { clearTimeout(timer); document.removeEventListener('pointerdown', outside, true); };
   });
 </script>
 

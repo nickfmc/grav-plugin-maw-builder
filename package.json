@@ -1,11 +1,11 @@
 {
   "name": "grav-plugin-maw-builder",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "private": true,
   "type": "module",
-  "description": "Visual block builder for Grav Admin2. Builds admin-next/fields/blocks.js.",
+  "description": "Visual block builder for Grav Admin2. Builds admin-next/fields/blocks.js and assets/preview-bridge.js.",
   "scripts": {
-    "build": "vite build && node scripts/finalize.mjs",
+    "build": "vite build && vite build -c vite.preview.config.js && node scripts/finalize.mjs",
     "watch": "vite build --watch",
     "test": "node --test \"tests/js/*.test.mjs\""
   },

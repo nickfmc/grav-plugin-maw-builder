@@ -2,6 +2,7 @@
   // Compare a saved version with the editor (or with the version before it): block-level and field-level changes.
   import Dialog from './Dialog.svelte';
   import Icon from './Icon.svelte';
+  import Segmented from './Segmented.svelte';
   import { api } from '../lib/api.js';
   import { normalizeList, blockSummary } from '../lib/blocks.js';
   import { diffBlocks, diffSummary } from '../lib/diff.js';
@@ -16,18 +17,25 @@
   let showSame = $state(false);
   let expanded = $state({});
 
+  let seq = 0;
   $effect(() => {
+    const mine = ++seq;
     error = '';
+    revBlocks = null;
     api.revision(store.context, rev.id)
-      .then((r) => (revBlocks = normalizeList(r.blocks || [], store.settingKeys)))
-      .catch((e) => (error = e.message));
+      .then((r) => { if (mine === seq) revBlocks = normalizeList(r.blocks || [], store.settingKeys); })
+      .catch((e) => { if (mine === seq) error = e.message; });
   });
 
+  let prevSeq = 0;
   $effect(() => {
-    if (mode !== 'previous' || !previous || prevBlocks) return;
-    api.revision(store.context, previous.id)
-      .then((r) => (prevBlocks = normalizeList(r.blocks || [], store.settingKeys)))
-      .catch((e) => (error = e.message));
+    const id = previous?.id;
+    prevBlocks = null;
+    if (mode !== 'previous' || !id) return;
+    const mine = ++prevSeq;
+    api.revision(store.context, id)
+      .then((r) => { if (mine === prevSeq) prevBlocks = normalizeList(r.blocks || [], store.settingKeys); })
+      .catch((e) => { if (mine === prevSeq) error = e.message; });
   });
 
   const ctx = $derived({ defFor: (t) => store.defFor(t), settings: store.catalog?.settings || [] });
@@ -57,15 +65,10 @@
 
 <Dialog title="Compare versions" wide {onclose}>
   <div class="bar">
-    <div class="seg" role="group" aria-label="Compare with">
-      <button type="button" class:active={mode === 'current'} onclick={() => (mode = 'current')}>
-        {when(rev.time)} → current editor
-      </button>
-      <button type="button" class:active={mode === 'previous'} disabled={!previous} onclick={() => (mode = 'previous')}
-              title={previous ? '' : 'This is the oldest saved version'}>
-        {previous ? `${when(previous.time)} → ${when(rev.time)}` : 'No earlier version'}
-      </button>
-    </div>
+    <Segmented label="Compare with" value={mode} onchange={(v) => (mode = v)} options={[
+      { value: 'current', label: `${when(rev.time)} → current editor` },
+      { value: 'previous', label: previous ? `${when(previous.time)} → ${when(rev.time)}` : 'No earlier version', disabled: !previous, title: previous ? '' : 'This is the oldest saved version' },
+    ]} />
     <label class="same"><input type="checkbox" bind:checked={showSame} /> Show unchanged</label>
   </div>
 
@@ -130,12 +133,8 @@
 
 <style>
   .bar { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; margin-bottom: 10px; }
-  .seg { display: inline-flex; padding: 3px; background: var(--mb-muted); border-radius: 7px; gap: 2px; flex-wrap: wrap; }
-  .seg button { border: 0; background: none; padding: 5px 10px; border-radius: 5px; font-size: 12px; font-weight: 550; color: var(--mb-muted-fg); }
-  .seg button.active { background: var(--mb-card); color: var(--mb-fg); box-shadow: 0 1px 2px rgb(0 0 0 / 0.12); }
-  .seg button:disabled { opacity: 0.5; }
   .same { display: inline-flex; gap: 6px; align-items: center; font-size: 12px; color: var(--mb-muted-fg); }
-  .counts { display: flex; gap: 6px; flex-wrap: wrap; margin: 0 0 10px !important; }
+  .counts { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 10px; }
   .rows { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
   .row { border: 1px solid var(--mb-border); border-inline-start-width: 4px; border-radius: 8px; padding: 8px 10px; background: var(--mb-card); }
   .row.added { border-inline-start-color: #16a34a; }

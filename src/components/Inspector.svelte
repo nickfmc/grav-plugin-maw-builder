@@ -101,7 +101,20 @@
     <p class="keys"><span class="mb-kbd">Ctrl+Z</span> undo · <span class="mb-kbd">Ctrl+S</span> save · <span class="mb-kbd">Del</span> remove</p>
   </div>
 {:else if !def}
-  <div class="none"><strong>Unknown block “{block.type}”</strong><p>The active theme has no schema for this type.</p></div>
+  <header>
+    <span class="ico"><Icon name="blocks" size={16} /></span>
+    <div class="h">
+      <strong>Unknown block “{block.type}”</strong>
+      <span>The active theme has no definition for this type. Its content is kept exactly as saved; the site renders nothing for it until the theme defines it.</span>
+    </div>
+    <button type="button" class="mb-btn ghost icon sm" title="Deselect" onclick={() => store.select(-1)}><Icon name="x" size={14} /></button>
+  </header>
+  <div class="body mb-scroll">
+    {#if store.catalog?.settings}
+      <StyleControls {block} {store} settings={store.catalog.settings} mode="visibility" />
+    {/if}
+    <pre class="raw">{JSON.stringify(block[block.type] ?? null, null, 2)}</pre>
+  </div>
 {:else}
   <header>
     <span class="ico"><Icon fa={def.icon} size={16} /></span>
@@ -117,10 +130,10 @@
     {#key store.selected}<GlobalInspector {store} {block} index={store.selected} {askConfirm} />{/key}
   </div>
   {:else}
-  <div class="tabs">
-    <button type="button" class:active={tab === 'content'} onclick={() => (tab = 'content')}>Content</button>
-    <button type="button" class:active={tab === 'style'} onclick={() => (tab = 'style')}>Style</button>
-    <button type="button" class:active={tab === 'advanced'} onclick={() => (tab = 'advanced')}>Advanced</button>
+  <div class="mb-tabs tabs" role="group" aria-label="Block settings">
+    <button type="button" aria-pressed={tab === 'content'} onclick={() => (tab = 'content')}>Content</button>
+    <button type="button" aria-pressed={tab === 'style'} onclick={() => (tab = 'style')}>Style</button>
+    <button type="button" aria-pressed={tab === 'advanced'} onclick={() => (tab = 'advanced')}>Advanced</button>
   </div>
 
   <div class="body mb-scroll">
@@ -162,18 +175,17 @@
   .none { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px; padding: 30px; text-align: center; color: var(--mb-muted-fg); height: 100%; }
   .none strong { color: var(--mb-fg); font-size: 14px; }
   .none p { margin: 0; }
-  .keys { margin-top: 10px !important; font-size: 11.5px; }
+  .none .keys { margin-top: 10px; font-size: 11.5px; }
+  .raw { margin: 12px 0 0; padding: 10px; border-radius: 8px; background: var(--mb-muted); font: 11.5px/1.5 ui-monospace, Consolas, monospace; white-space: pre-wrap; overflow-wrap: anywhere; }
   header { display: flex; align-items: flex-start; gap: 10px; padding: 14px 12px 10px; }
   .ico { display: grid; place-items: center; width: 32px; height: 32px; border-radius: 8px; flex: none; background: color-mix(in srgb, var(--mb-primary) 12%, transparent); color: var(--mb-primary); }
   .h { flex: 1; min-width: 0; display: flex; flex-direction: column; }
   .h strong { font-size: 14px; }
   .h span { color: var(--mb-muted-fg); font-size: 11.5px; line-height: 1.35; }
-  .tabs { display: flex; gap: 2px; padding: 0 12px; border-bottom: 1px solid var(--mb-border); }
-  .tabs button { border: 0; background: none; padding: 8px 10px; font-weight: 600; color: var(--mb-muted-fg); border-bottom: 2px solid transparent; margin-bottom: -1px; }
-  .tabs button.active { color: var(--mb-fg); border-bottom-color: var(--mb-primary); }
+  .tabs { padding: 0 12px; }
   .body { flex: 1; min-height: 0; padding: 14px 12px 40px; }
   .field { margin-top: 14px; }
-  .tip { font-size: 12px; color: var(--mb-fg) !important; opacity: 0.8; margin-top: 8px !important; }
+  .none .tip { font-size: 12px; color: var(--mb-fg); opacity: 0.8; margin-top: 8px; }
   .make-global { margin-top: 18px; padding: 10px; border-radius: 8px; border: 1px dashed color-mix(in srgb, #7c3aed 45%, var(--mb-border)); background: color-mix(in srgb, #7c3aed 5%, transparent); }
   .make-global .row { display: flex; gap: 6px; margin-top: 8px; }
   .make-global .mb-help { margin-top: 0; }

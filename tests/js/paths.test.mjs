@@ -11,6 +11,21 @@ test('getPath / setPath address nested content', () => {
   assert.equal(getPath(block, 'items.0.question'), 'Why?');
 });
 
+test('setPath removes the key on an empty value, like the inspector', () => {
+  const block = { type: 'hero', hero: { heading: 'H', eyebrow: 'E' } };
+  assert.equal(setPath(block, 'eyebrow', ''), true);
+  assert.deepEqual(block.hero, { heading: 'H' });
+  assert.equal(setPath(block, 'eyebrow', ''), false);
+});
+
+test('paths never reach the prototype chain', () => {
+  const block = { type: 'hero', hero: {} };
+  assert.throws(() => setPath(block, '__proto__.polluted', 'yes'));
+  assert.throws(() => listAt(block, 'constructor.prototype.x'));
+  assert.throws(() => getPath(block, 'prototype'));
+  assert.equal(({}).polluted, undefined);
+});
+
 test('listAt creates the list and listOps edit it', () => {
   const block = { type: 'faq', faq: {} };
   const list = listAt(block, 'items');
@@ -23,6 +38,8 @@ test('listAt creates the list and listOps edit it', () => {
   assert.equal(listOps.move(list, 2, 0), 0);
   assert.deepEqual(list.map((x) => x.q), ['b', 'a', 'copy']);
   assert.equal(listOps.move(list, 0, 9), -1);
+  assert.equal(listOps.move(list, -1, 1), -1, 'a bad source index does nothing');
+  assert.deepEqual(list.map((x) => x.q), ['b', 'a', 'copy']);
   assert.equal(listOps.remove(list, 2), 1);
   assert.equal(listOps.remove(list, 5), -1);
   assert.equal(block.faq.items, list);

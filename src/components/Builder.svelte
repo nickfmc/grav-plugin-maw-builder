@@ -60,7 +60,7 @@
   }
 
   function handleKey(e) {
-    if (!store.open || e.__mawSave) return;
+    if (!store.open) return;
     const mod = isMac ? e.metaKey : e.ctrlKey;
     const key = e.key.toLowerCase();
     if (mod && key === 's') { e.preventDefault(); e.stopPropagation(); store.isSection ? saveSection() : update(); return; }
@@ -90,17 +90,16 @@
   }
 
   /**
-   * Save through Admin2's own Ctrl/Cmd+S handler, so validation, revisions and events all run as usual.
-   * The value has already been pushed to the form by every edit.
+   * Save through Admin2's own page save (the `grav:editor:save` window event it listens for, the same handler its
+   * Ctrl/Cmd+S runs), so validation, revisions and events all run as usual. The value has already been pushed to
+   * the form by every edit; the server is then polled to confirm the blocks really landed on disk.
    */
   async function update() {
     if (store.isSection) return saveSection();
     if (store.readOnly || store.saving) return;
     const blocks = store.snapshot();
     const wasDirty = store.dirty;
-    const ev = new KeyboardEvent('keydown', { key: 's', code: 'KeyS', ctrlKey: !isMac, metaKey: isMac, bubbles: true, cancelable: true });
-    ev.__mawSave = true;
-    window.dispatchEvent(ev);
+    window.dispatchEvent(new CustomEvent('grav:editor:save'));
     // Nothing of ours to confirm (other form fields may still be saving through Admin2): just take the new base.
     if (!wasDirty) { setTimeout(() => store.refreshBase(), 2500); return; }
     if (await store.confirmSaved(blocks)) {
@@ -367,11 +366,11 @@
 
   <div class="body" class:resizing style:grid-template-columns={columns}>
     <aside class="panel left-panel" class:collapsed={!leftOpen} inert={!leftOpen} aria-hidden={!leftOpen}>
-      <div class="tabs" role="tablist">
-        <button type="button" role="tab" aria-selected={leftTab === 'blocks'} class:active={leftTab === 'blocks'} onclick={() => (leftTab = 'blocks')}><Icon name="plus" size={14} /> Blocks</button>
-        <button type="button" role="tab" aria-selected={leftTab === 'patterns'} class:active={leftTab === 'patterns'} onclick={() => (leftTab = 'patterns')}><Icon name="template" size={14} /> Patterns</button>
-        <button type="button" role="tab" aria-selected={leftTab === 'outline'} class:active={leftTab === 'outline'} onclick={() => (leftTab = 'outline')}><Icon name="layers" size={14} /> Outline</button>
-        <button type="button" role="tab" aria-selected={leftTab === 'history'} class:active={leftTab === 'history'} onclick={() => (leftTab = 'history')} title="Saved versions"><Icon name="history" size={14} /> History</button>
+      <div class="mb-tabs tabs" role="group" aria-label="Panel">
+        <button type="button" aria-pressed={leftTab === 'blocks'} onclick={() => (leftTab = 'blocks')}><Icon name="plus" size={14} /> Blocks</button>
+        <button type="button" aria-pressed={leftTab === 'patterns'} onclick={() => (leftTab = 'patterns')}><Icon name="template" size={14} /> Patterns</button>
+        <button type="button" aria-pressed={leftTab === 'outline'} onclick={() => (leftTab = 'outline')}><Icon name="layers" size={14} /> Outline</button>
+        <button type="button" aria-pressed={leftTab === 'history'} onclick={() => (leftTab = 'history')} title="Saved versions"><Icon name="history" size={14} /> History</button>
       </div>
       <div class="panel-body mb-scroll">
         {#if store.loadError}
@@ -411,9 +410,8 @@
                   onselect={(ref) => store.replaceImage(ref)} onclose={() => (store.imagePick = null)} />
   {/if}
 
-  {#if store.toast}
-    <div class="toast" role="status">{store.toast}</div>
-  {/if}
+  <!-- Always in the DOM so screen readers announce text changes; created together with its text it would be missed. -->
+  <div class="toast" class:on={!!store.toast} role="status" aria-live="polite">{store.toast}</div>
 
   {#if dialog?.kind === 'pattern'}
     <Dialog title="Save as pattern" onclose={() => (dialog = null)}>
@@ -512,15 +510,14 @@
   .panel { background: var(--mb-card); display: flex; flex-direction: column; min-height: 0; }
   .left-panel { border-inline-end: 1px solid var(--mb-border); }
   .right-panel { border-inline-start: 1px solid var(--mb-border); }
-  .tabs { display: flex; padding: 8px 8px 0; gap: 2px; border-bottom: 1px solid var(--mb-border); }
-  .tabs button { flex: 1; display: inline-flex; align-items: center; justify-content: center; gap: 4px; padding: 8px 2px; font-size: 12px; border: 0; background: none; color: var(--mb-muted-fg); font-weight: 600; border-bottom: 2px solid transparent; margin-bottom: -1px; }
-  .tabs button.active { color: var(--mb-fg); border-bottom-color: var(--mb-primary); }
+  .tabs { padding: 8px 8px 0; }
   .panel-body { flex: 1; min-height: 0; padding: 12px; }
   .canvas-wrap { min-width: 0; min-height: 0; position: relative; }
   .muted { color: var(--mb-muted-fg); }
   .error { color: var(--mb-danger); }
 
-  .toast { position: absolute; bottom: 18px; left: 50%; transform: translateX(-50%); background: var(--mb-fg); color: var(--mb-bg); padding: 8px 14px; border-radius: 8px; box-shadow: var(--mb-shadow); font-weight: 550; z-index: 20; }
+  .toast { position: absolute; bottom: 18px; left: 50%; transform: translateX(-50%) translateY(8px); background: var(--mb-fg); color: var(--mb-bg); padding: 8px 14px; border-radius: 8px; box-shadow: var(--mb-shadow); font-weight: 550; z-index: 20; opacity: 0; pointer-events: none; transition: opacity 150ms, transform 150ms; }
+  .toast.on { opacity: 1; transform: translateX(-50%); }
   .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 12px; }
 
   @media (max-width: 1100px) {

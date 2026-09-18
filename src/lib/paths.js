@@ -1,8 +1,15 @@
 // Pure helpers for addressing content inside a block by dot-path ("items.2.title").
 // Paths are relative to the block's content object (block[block.type]). No Svelte, so they run under `node --test`.
+import { isEmptyValue } from './blocks.js';
 
 const isIndex = (part) => /^\d+$/.test(part);
-const key = (part) => (isIndex(part) ? Number(part) : part);
+// Paths arrive from the preview iframe (theme templates), so a walk must never reach the prototype chain.
+const FORBIDDEN = new Set(['__proto__', 'constructor', 'prototype']);
+const key = (part) => {
+  if (FORBIDDEN.has(part)) throw new Error(`Refusing path segment "${part}"`);
+  return isIndex(part) ? Number(part) : part;
+};
+const parts = (path) => String(path).split('.').map(key);
 
 /** The block's content object, created when missing. */
 export function contentOf(block) {
@@ -13,38 +20,46 @@ export function contentOf(block) {
 /** Read a content value by path. */
 export function getPath(block, path) {
   let target = block && block[block.type];
-  for (const part of String(path).split('.')) {
+  for (const k of parts(path)) {
     if (target == null) return undefined;
-    target = target[key(part)];
+    target = target[k];
   }
   return target;
 }
 
-/** Write a content value by path, creating objects / arrays on the way. Returns false when nothing changed. */
+/**
+ * Write a content value by path, creating objects / arrays on the way. An empty value removes the key, the same
+ * rule as the inspector (blocks.js setField). Returns false when nothing changed.
+ */
 export function setPath(block, path, value) {
-  const parts = String(path).split('.');
+  const keys = parts(path);
   let target = contentOf(block);
-  for (let i = 0; i < parts.length - 1; i++) {
-    const k = key(parts[i]);
-    if (target[k] == null || typeof target[k] !== 'object') target[k] = isIndex(parts[i + 1]) ? [] : {};
+  for (let i = 0; i < keys.length - 1; i++) {
+    const k = keys[i];
+    if (target[k] == null || typeof target[k] !== 'object') target[k] = typeof keys[i + 1] === 'number' ? [] : {};
     target = target[k];
   }
-  const last = key(parts.at(-1));
-  if ((target[last] ?? '') === value) return false;
+  const last = keys.at(-1);
+  if (isEmptyValue(value)) {
+    if (!(last in target)) return false;
+    if (Array.isArray(target)) target[last] = undefined; else delete target[last];
+    return true;
+  }
+  if (target[last] === value) return false;
   target[last] = value;
   return true;
 }
 
 /** The array at `path` (a repeater), created when missing. */
 export function listAt(block, path) {
-  const parts = String(path).split('.');
+  const keys = parts(path);
   let target = contentOf(block);
-  for (let i = 0; i < parts.length - 1; i++) {
-    const k = key(parts[i]);
+  for (let i = 0; i < keys.length - 1; i++) {
+    const k = keys[i];
     if (target[k] == null || typeof target[k] !== 'object') target[k] = {};
     target = target[k];
   }
-  const last = parts.at(-1);
+  const last = keys.at(-1);
   if (!Array.isArray(target[last])) target[last] = [];
   return target[last];
 }
@@ -68,7 +83,7 @@ export const listOps = {
     return Math.min(i, list.length - 1);
   },
   move(list, from, to) {
-    if (to < 0 || to >= list.length || list[from] === undefined) return -1;
+    if (to < 0 || to >= list.length || list[from] === undefined || from === to) return -1;
     const [x] = list.splice(from, 1);
     list.splice(to, 0, x);
     return to;

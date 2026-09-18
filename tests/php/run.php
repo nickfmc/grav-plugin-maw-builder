@@ -14,6 +14,7 @@ use Grav\Common\Processors\InitializeProcessor;
 use Grav\Plugin\MawBuilder\BlockRegistry;
 use Grav\Plugin\MawBuilder\Controllers\BuilderController;
 use Grav\Plugin\MawBuilder\MediaCopy;
+use Grav\Plugin\MawBuilder\PatternStore;
 use Grav\Plugin\MawBuilder\PresenceStore;
 use Grav\Plugin\MawBuilder\PreviewDraft;
 use Grav\Plugin\MawBuilder\RevisionStore;
@@ -78,11 +79,50 @@ test('registry knows theme blocks and global', function () use ($grav) {
     ok(in_array('hide_on', $r->settingKeys(), true), 'hide_on is a shared setting');
 });
 
-test('canonical moves flat content under the type and keeps settings flat', function () use ($grav) {
+test('canonical moves flat content under the type, keeps settings flat and never discards a key', function () use ($grav) {
     $r = new BlockRegistry($grav);
-    eq(['type' => 'faq', 'background' => 'alt', 'faq' => ['heading' => 'Q']], $r->canonical(['type' => 'faq', 'background' => 'alt', 'heading' => 'Q']));
-    // Nested content wins over flat leftovers.
-    eq(['type' => 'faq', 'faq' => ['heading' => 'N']], $r->canonical(['type' => 'faq', 'heading' => 'F', 'faq' => ['heading' => 'N']]));
+    eq(['type' => 'faq', 'background' => 'alt', 'faq' => ['heading' => 'Q', 'extra' => 1]], $r->canonical(['type' => 'faq', 'background' => 'alt', 'heading' => 'Q', 'extra' => 1]));
+    // With a nested map present every other key stays exactly where it was written (unknown settings, hand-written keys).
+    eq(['type' => 'faq', 'heading' => 'F', 'bg_color' => '#123', 'zzz' => 'keep', 'faq' => ['heading' => 'N', 'zzz_nested' => 'keep']],
+        $r->canonical(['type' => 'faq', 'heading' => 'F', 'bg_color' => '#123', 'zzz' => 'keep', 'faq' => ['heading' => 'N', 'zzz_nested' => 'keep']]));
+});
+
+test('normalize keeps unknown types, reports them, and refuses malformed ones', function () use ($grav) {
+    $r = new BlockRegistry($grav);
+    $n = $r->normalize([['type' => 'hero', 'hero' => []], ['type' => 'nope', 'nope' => ['x' => 1]], ['type' => '../etc'], 'junk', ['heading' => 'no type']]);
+    eq(['hero', 'nope'], array_column($n['blocks'], 'type'));
+    eq(['x' => 1], $n['blocks'][1]['nope'], 'unknown block keeps its content');
+    eq(['nope'], $n['unknown']);
+    eq([2, 3, 4], $n['invalid']);
+});
+
+test('patterns: ids are slugs unique across shipped and user folders, unknown types are reported', function () use ($grav) {
+    $shipped = tmpdir();
+    $user = tmpdir();
+    file_put_contents("$shipped/hero-band.yaml", "title: Hero band\nblocks:\n  - type: hero\n    hero: {heading: H}\n");
+    file_put_contents("$shipped/broken.yaml", "title: [unclosed\nblocks: x\n");
+    file_put_contents("$user/old-theme.yaml", "title: Old\nblocks:\n  - type: nope\n");
+    $store = new PatternStore($grav, new BlockRegistry($grav), $user, $shipped);
+    eq('hero-band-2', $store->save('Hero band', 'section', '', [['type' => 'cta']])['id'], 'never shadows a shipped pattern');
+    $byId = array_column($store->all(), null, 'id');
+    eq(['hero-band', 'hero-band-2', 'old-theme'], array_keys($byId));
+    eq('shipped', $byId['hero-band']['source']);
+    eq([], $byId['hero-band']['unknown']);
+    eq(['nope'], $byId['old-theme']['unknown']);
+    ok($store->delete('old-theme'));
+    ok(!$store->delete('hero-band'), 'shipped patterns cannot be deleted');
+    ok(!$store->delete('../x'));
+    ok(!PatternStore::validId('user:my-pat'), 'a colon would be eaten by the URI parser');
+});
+
+test('preview drafts are garbage-collected by their lifetime', function () use ($grav) {
+    $dir = tmpdir();
+    $drafts = new PreviewDraft($grav, $dir);
+    $old = $drafts->put('/x', [], 'blocks', 'u');
+    touch("$dir/$old.json", time() - $drafts->ttl() - 120);
+    $new = $drafts->put('/y', [], 'blocks', 'u');
+    ok(!is_file("$dir/$old.json"), 'expired draft removed on the next write');
+    ok(is_file("$dir/$new.json"));
 });
 
 /* ---------------------------------------------------------------- SectionStore */

@@ -70,7 +70,8 @@ class BlocksField extends HTMLElement {
   }
 
   disconnectedCallback() {
-    // Admin2 re-renders fields when switching tabs; keep the builder only while the element is attached.
+    // Admin2 hides tabs with a class and re-creates the form only when the page template changes; either way the
+    // builder lives only while this element is attached, and a same-task re-attach must not tear it down.
     queueMicrotask(() => {
       if (this.isConnected) return;
       this.#closeBuilder();

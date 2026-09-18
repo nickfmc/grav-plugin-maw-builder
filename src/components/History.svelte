@@ -6,12 +6,12 @@
   import RevisionDiff from './RevisionDiff.svelte';
 
   let { store, askConfirm } = $props();
-  let comparing = $state(-1);         // index into items while the compare dialog is open
+  let comparing = $state('');         // revision id while the compare dialog is open
 
   // Let the builder's keyboard handler close the dialog with Escape (and not act on the page meanwhile).
   $effect(() => {
-    if (comparing < 0) return;
-    store.modal = { close: () => (comparing = -1) };
+    if (!comparing) return;
+    store.modal = { close: () => (comparing = '') };
     return () => { store.modal = null; };
   });
 
@@ -20,17 +20,20 @@
   let error = $state('');
   let busyId = $state('');
 
+  let seq = 0;
   async function load() {
     if (!store.canPreview) return;
+    const mine = ++seq;
     loading = true;
     error = '';
     try {
       const res = await api.revisions(store.context);
+      if (mine !== seq) return; // a newer load (page ↔ section switch) has taken over
       items = res?.items || [];
     } catch (e) {
-      error = e.message;
+      if (mine === seq) error = e.message;
     }
-    loading = false;
+    if (mine === seq) loading = false;
   }
 
   // Reload when the edited thing changes (page ↔ global section) or after a save.
@@ -95,7 +98,7 @@
         </div>
         <div class="types">{summary(rev)}</div>
         <div class="btns">
-          <button type="button" class="mb-btn sm" onclick={() => (comparing = i)} title="See what changed">
+          <button type="button" class="mb-btn sm" onclick={() => (comparing = rev.id)} title="See what changed">
             <Icon name="layers" size={12} /> Compare
           </button>
           <button type="button" class="mb-btn sm" disabled={busyId === rev.id || store.readOnly} onclick={() => restore(rev, i)}>
@@ -111,10 +114,13 @@
   {/each}
 </ol>
 
-{#if comparing >= 0 && items[comparing]}
-  <RevisionDiff {store} {when} rev={items[comparing]} previous={items[comparing + 1] || null}
-                onclose={() => (comparing = -1)}
-                onrestore={(rev) => { const i = comparing; comparing = -1; restore(rev, i); }} />
+{#if comparing}
+  {@const at = items.findIndex((r) => r.id === comparing)}
+  {#if at >= 0}
+    <RevisionDiff {store} {when} rev={items[at]} previous={items[at + 1] || null}
+                  onclose={() => (comparing = '')}
+                  onrestore={(rev) => { comparing = ''; restore(rev, at); }} />
+  {/if}
 {/if}
 
 <style>

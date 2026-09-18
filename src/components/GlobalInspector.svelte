@@ -11,16 +11,19 @@
   const id = $derived(block.global?.section || '');
   const section = $derived(store.sections.find((s) => s.id === id));
 
+  let seq = 0;
   $effect(() => {
     usage = null;
     if (!id) return;
-    api.section(id).then((s) => (usage = s.usage || [])).catch(() => (usage = []));
+    const mine = ++seq;
+    api.section(id).then((s) => { if (mine === seq) usage = s.usage || []; }).catch(() => { if (mine === seq) usage = []; });
   });
 
   onMount(() => store.refreshSections());
 
   function choose(e) {
     const next = e.currentTarget.value;
+    if (store.readOnly) { e.currentTarget.value = id; }
     store.mutate(() => {
       if (!block.global || typeof block.global !== 'object') block.global = {};
       block.global.section = next;

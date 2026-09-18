@@ -58,4 +58,17 @@ textarea.mb-input { resize: vertical; min-height: 64px; line-height: 1.5; }
 
 .mb-kbd { font-size: 11px; color: var(--mb-muted-fg); border: 1px solid var(--mb-border); border-radius: 4px; padding: 0 4px; }
 
-.sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+
+/* Segmented control (Segmented.svelte): the pressed option is marked with aria-pressed and .active */
+.mb-seg { display: flex; padding: 3px; background: var(--mb-muted); border-radius: 7px; gap: 2px; flex-wrap: wrap; }
+.mb-seg button { flex: 1; display: inline-flex; align-items: center; justify-content: center; gap: 4px; border: 0; background: none; padding: 5px 6px; border-radius: 5px; font-size: 12px; font-weight: 550; color: var(--mb-muted-fg); }
+.mb-seg button.active { background: var(--mb-card); color: var(--mb-fg); box-shadow: 0 1px 2px rgb(0 0 0 / 0.12); }
+.mb-seg button:disabled { opacity: 0.5; cursor: default; }
+.mb-seg button:focus-visible { outline: 2px solid var(--mb-primary); outline-offset: -2px; }
+.mb-seg.sm button { padding: 4px 4px; font-size: 11.5px; }
+
+/* Underline tabs (panel switchers): state is exposed through aria-pressed */
+.mb-tabs { display: flex; gap: 2px; border-bottom: 1px solid var(--mb-border); }
+.mb-tabs button { flex: 1; display: inline-flex; align-items: center; justify-content: center; gap: 4px; padding: 8px 6px; font-size: 12px; border: 0; background: none; color: var(--mb-muted-fg); font-weight: 600; border-bottom: 2px solid transparent; margin-bottom: -1px; }
+.mb-tabs button[aria-pressed="true"] { color: var(--mb-fg); border-bottom-color: var(--mb-primary); }
+.mb-tabs button:focus-visible { outline: 2px solid var(--mb-primary); outline-offset: -2px; }

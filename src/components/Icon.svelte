@@ -1,6 +1,6 @@
 <script>
   // UI icons (Lucide-style, stroke). Block icons from the theme use Font Awesome names and map via `fa`.
-  let { name = 'square', size = 16, fa = '' } = $props();
+  let { name = 'blocks', size = 16, fa = '' } = $props();
 
   const P = {
     plus: 'M12 5v14M5 12h14',
