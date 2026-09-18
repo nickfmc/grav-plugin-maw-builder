@@ -5,7 +5,8 @@
   //   mode="visibility": only the visibility group (hide on devices / everywhere), used for global section references
   import Icon from '../Icon.svelte';
   import FieldControl from './FieldControl.svelte';
-  import { hiddenDevices } from '../../lib/blocks.js';
+  import Segmented from '../Segmented.svelte';
+  import { hiddenDevices, setField } from '../../lib/blocks.js';
 
   let { block, store, settings = [], mode = 'style' } = $props();
 
@@ -22,10 +23,18 @@
   let hexDraft = $state('');
   $effect(() => { hexDraft = customHex; });
 
+  /** A setting equal to its blueprint default is not stored (the theme renders the default anyway). */
   function set(name, value, def) {
     store.beginEdit();
-    if (value === undefined || value === '' || value === null || value === def) delete block[name];
-    else block[name] = value;
+    setField(block, name, value === def ? undefined : value);
+    store.endEdit();
+  }
+
+  /** Custom colour off: the text tone only makes sense with it, so it goes too (same as picking a preset). */
+  function clearCustom() {
+    store.beginEdit();
+    setField(block, 'bg_color', undefined);
+    setField(block, 'text_color', undefined);
     store.endEdit();
   }
 
@@ -67,7 +76,7 @@
   function commitHexDraft() {
     let v = hexDraft.trim();
     if (v && !v.startsWith('#')) v = '#' + v;
-    if (!v) set('bg_color', undefined);
+    if (!v) clearCustom();
     else if (HEX.test(v)) setCustom(v);
     else hexDraft = customHex;
   }
@@ -94,7 +103,7 @@
     <div class="group">
       <span class="mb-label">Background</span>
       <div class="swatches">
-        {#each byName.background.options as opt}
+        {#each byName.background.options || [] as opt}
           {@const active = !customHex && current('background') === opt.value}
           <button type="button" class="sw" class:active title={opt.label} aria-label={opt.label} aria-pressed={active}
                   style:background={swatch(opt.value)} style:color={swatchFg(opt.value)}
@@ -112,7 +121,7 @@
         {/if}
       </div>
       <div class="mb-help">
-        {#if customHex}Custom {customHex}{:else}{byName.background.options.find((o) => o.value === current('background'))?.label}{/if}
+        {#if customHex}Custom {customHex}{:else}{(byName.background.options || []).find((o) => o.value === current('background'))?.label}{/if}
         {#if store.palette}<span class="live">· colors from your theme ({store.palette._mode})</span>{/if}
       </div>
     </div>
@@ -124,7 +133,7 @@
           <span class="chip" style:background={customHex || 'transparent'}></span>
           <input class="mb-input" placeholder="#hex e.g. #0f766e" bind:value={hexDraft}
                  onchange={commitHexDraft} onkeydown={(e) => e.key === 'Enter' && commitHexDraft()} spellcheck="false" />
-          {#if customHex}<button type="button" class="mb-btn sm ghost" onclick={() => set('bg_color', undefined)}>Clear</button>{/if}
+          {#if customHex}<button type="button" class="mb-btn sm ghost" onclick={clearCustom}>Clear</button>{/if}
         </div>
         <div class="suggest">
           {#each suggestions as c}
@@ -134,28 +143,18 @@
 
         {#if customHex && byName.text_color}
           <span class="mb-label sub">Text color</span>
-          <div class="seg">
-            {#each byName.text_color.options as opt}
-              <button type="button" class:active={(block.text_color || 'auto') === opt.value}
-                      onclick={() => set('text_color', opt.value, 'auto')}>
-                {opt.label}{#if opt.value === 'auto'} ({tone(customHex)}){/if}
-              </button>
-            {/each}
-          </div>
+          <Segmented label="Text color" value={block.text_color || 'auto'} onchange={(v) => set('text_color', v, 'auto')}
+                     options={(byName.text_color.options || []).map((o) => ({ value: o.value, label: o.value === 'auto' ? `${o.label} (${tone(customHex)})` : o.label }))} />
         {/if}
       </div>
     {/if}
   {/if}
 
   {#each ['spacing', 'width', 'align'] as name}
-    {#if byName[name]}
+    {#if byName[name]?.options}
       <div class="group">
         <span class="mb-label">{byName[name].label}</span>
-        <div class="seg">
-          {#each byName[name].options as opt}
-            <button type="button" class:active={current(name) === opt.value} onclick={() => set(name, opt.value, byName[name].default)}>{opt.label}</button>
-          {/each}
-        </div>
+        <Segmented label={byName[name].label} value={current(name)} options={byName[name].options} onchange={(v) => set(name, v, byName[name].default)} />
       </div>
     {/if}
   {/each}
@@ -169,7 +168,7 @@
   {#if byName.hide_on || byName.hidden}
     <div class="group">
       <span class="mb-label">Visibility</span>
-      <div class="seg">
+      <div class="mb-seg">
         {#if byName.hide_on}
           {#each DEVICES as [device, icon, label]}
             {@const off = hideOn.includes(device)}
@@ -216,10 +215,7 @@
   .dot { width: 20px; height: 20px; border-radius: 50%; border: 1px solid var(--mb-border); padding: 0; }
   .dot:hover { transform: scale(1.12); }
   .sub { margin-top: 10px; }
-  .seg { display: flex; padding: 3px; background: var(--mb-muted); border-radius: 7px; gap: 2px; flex-wrap: wrap; }
-  .seg button { flex: 1; border: 0; background: none; padding: 5px 4px; border-radius: 5px; font-size: 12px; font-weight: 550; color: var(--mb-muted-fg); }
-  .seg button.active { background: var(--mb-card); color: var(--mb-fg); box-shadow: 0 1px 2px rgb(0 0 0 / 0.12); }
-  .seg button.dev { display: inline-flex; align-items: center; justify-content: center; gap: 4px; background: var(--mb-card); color: var(--mb-fg); box-shadow: 0 1px 2px rgb(0 0 0 / 0.12); }
-  .seg button.dev.off { background: transparent; color: #b45309; box-shadow: none; text-decoration: line-through; }
-  .seg button.dev:disabled { opacity: 0.45; }
+  :global(.mb-seg) button.dev { background: var(--mb-card); color: var(--mb-fg); box-shadow: 0 1px 2px rgb(0 0 0 / 0.12); }
+  :global(.mb-seg) button.dev.off { background: transparent; color: #b45309; box-shadow: none; text-decoration: line-through; }
+  :global(.mb-seg) button.dev:disabled { opacity: 0.45; }
 </style>

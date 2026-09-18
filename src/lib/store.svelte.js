@@ -1,6 +1,6 @@
 // Builder state shared by the in-form summary and the full-screen builder.
 import { api, ownerParams } from './api.js';
-import { normalizeList, createBlock, duplicate as cloneBlock, newListItem, DEFAULT_SETTING_KEYS } from './blocks.js';
+import { normalizeList, createBlock, duplicate as cloneBlock, newListItem, isInlineText, isTextLike, DEFAULT_SETTING_KEYS } from './blocks.js';
 import { getPath, setPath, listAt, listOps, fieldDef, moveMany } from './paths.js';
 import { CLIPBOARD_KEY, makePayload, parsePayload, mediaRefs, sameOwner } from './clipboard.js';
 
@@ -328,10 +328,17 @@ export class BuilderStore {
             return true;
           }
         } catch (e) {
-          if (e.status === 401 || e.status === 403) break;
+          if (e.status === 401) {
+            this.saveError = 'Your admin session has expired, so this save could not be confirmed. Sign in again in another tab, then click Try again: your edits are still here.';
+            return false;
+          }
+          if (e.status === 403) {
+            this.saveError = "You don't have permission to edit this page. Ask an administrator, or copy your blocks (Ctrl+C) to keep them.";
+            return false;
+          }
         }
       }
-      this.saveError = "The page wasn't saved. Check the admin message (a required field, or your session may have expired), then try again.";
+      this.saveError = "The page wasn't saved. Check the admin message (a required field may be missing), then try again.";
       return false;
     } finally {
       this.saving = false;
@@ -387,9 +394,12 @@ export class BuilderStore {
     return this.loading;
   }
 
-  /** Value pushed in by Admin2. Ignored if it's the value we just emitted. */
+  /**
+   * Value pushed in by Admin2. Ignored if it's the value we just emitted. Until the catalogue is loaded the setting
+   * keys are unknown, so a flat block is kept as written rather than guessed at; load() normalises again.
+   */
   setValue(value) {
-    const next = normalizeList(value, this.settingKeys);
+    const next = normalizeList(value, this.catalog ? this.settingKeys : null);
     if (JSON.stringify(next) === JSON.stringify($state.snapshot(this.blocks))) return;
     this.blocks = next;
     if (this.selected >= next.length) this.selected = next.length - 1;
@@ -461,9 +471,8 @@ export class BuilderStore {
     if (op === 'add') {
       // Theme `new_item:` template → field defaults → placeholders for every text field (see newListItem).
       const fresh = newListItem(def, noun);
-      // Start typing in the first single-line text field (the one inline editing can reach), else the first text-ish one.
-      const textField = (def?.fields || []).find((f) => f.type === 'text' && /(^|_)url$/.test(f.name) === false)
-        || (def?.fields || []).find((f) => ['textarea', 'markdown'].includes(f.type));
+      // Start typing in the first single-line text field (the one inline editing can reach), else the first text-like one.
+      const textField = (def?.fields || []).find(isInlineText) || (def?.fields || []).find(isTextLike);
       let newIndex = 0;
       this.mutate(() => { newIndex = listOps.add(listAt(block, path), fresh); }, `Adding ${noun}…`);
       if (textField) this.pendingFocus = { index, path: `${path}.${newIndex}.${textField.name}` };
@@ -681,7 +690,8 @@ export class BuilderStore {
   }
 
   insertMany(list, at = null, replace = false) {
-    const items = normalizeList(JSON.parse(JSON.stringify(list)), this.settingKeys).filter((b) => this.defFor(b.type));
+    // Unknown block types are kept: they render as a "missing block" notice and the theme may define them later.
+    const items = normalizeList(JSON.parse(JSON.stringify(list)), this.settingKeys);
     if (!items.length) return;
     if (replace) {
       this.mutate((blocks) => blocks.splice(0, blocks.length, ...items), 'Building page layout…');

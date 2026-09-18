@@ -16,7 +16,7 @@
   }
 
   function drop(i) {
-    if (dragFrom >= 0) store.move(dragFrom, dragFrom < i ? i : i);
+    if (dragFrom >= 0) store.move(dragFrom, i);
     dragFrom = dragOver = -1;
   }
 </script>
@@ -75,8 +75,8 @@
   .row { flex: 1; min-width: 0; display: flex; align-items: center; gap: 7px; border: 0; background: none; padding: 7px 2px; text-align: start; }
   .t { font-weight: 600; white-space: nowrap; }
   .s { color: var(--mb-muted-fg); overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-size: 12px; }
-  .actions { display: none; }
-  li:hover .actions, li.selected .actions { display: flex; }
+  .actions { display: flex; opacity: 0; }
+  li:hover .actions, li.selected .actions, li:focus-within .actions { opacity: 1; }
   .empty { color: var(--mb-muted-fg); }
   .tools { display: flex; align-items: center; gap: 2px; margin-bottom: 6px; flex-wrap: wrap; }
   .tools .spacer { flex: 1; }

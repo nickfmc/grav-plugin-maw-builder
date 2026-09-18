@@ -1,6 +1,7 @@
 <script>
   // Patterns: prebuilt sections and full page layouts (copied into the page), plus global sections (synced).
   import Icon from './Icon.svelte';
+  import Segmented from './Segmented.svelte';
 
   let { store, askConfirm } = $props();
   let filter = $state('section');
@@ -46,14 +47,12 @@
   }
 </script>
 
-<div class="seg" role="tablist">
-  <button type="button" class:active={filter === 'section'} onclick={() => (filter = 'section')}>Sections</button>
-  <button type="button" class:active={filter === 'page'} onclick={() => (filter = 'page')}>Layouts</button>
-  {#if !store.isSection}
-    <button type="button" class:active={filter === 'global'} onclick={() => { filter = 'global'; store.refreshSections(); }}>
-      <Icon name="globe" size={12} /> Global
-    </button>
-  {/if}
+<div class="filter">
+  <Segmented label="Pattern kind" value={filter} onchange={(v) => { filter = v; if (v === 'global') store.refreshSections(); }} options={[
+    { value: 'section', label: 'Sections' },
+    { value: 'page', label: 'Layouts' },
+    ...(store.isSection ? [] : [{ value: 'global', label: 'Global', icon: 'globe' }]),
+  ]} />
 </div>
 
 {#if filter === 'global'}
@@ -75,8 +74,10 @@
   {/each}
 {:else}
   {#each list as pattern (pattern.id)}
-    <div class="pattern">
-      <button type="button" class="preview" onclick={() => use(pattern)} title="Insert pattern">
+    {@const unusable = pattern.unknown?.length > 0}
+    <div class="pattern" class:unusable>
+      <button type="button" class="preview" disabled={unusable} onclick={() => use(pattern)}
+              title={unusable ? `Uses block types this theme does not have: ${pattern.unknown.join(', ')}` : 'Insert pattern'}>
         <div class="mini">
           {#each pattern.blocks.slice(0, 6) as b}
             <span class="bar {b.type}" class:accent={b.background === 'accent' || b.type === 'cta'} class:alt={b.background === 'alt' || b.background === 'soft'} class:dark={b.background === 'dark'}></span>
@@ -84,7 +85,7 @@
         </div>
         <div class="pmeta">
           <strong>{pattern.title}</strong>
-          <span>{pattern.description || pattern.blocks.map((b) => typeTitle(b.type)).join(' · ')}</span>
+          <span>{unusable ? `Needs block types this theme lacks: ${pattern.unknown.join(', ')}` : pattern.description || pattern.blocks.map((b) => typeTitle(b.type)).join(' · ')}</span>
         </div>
       </button>
       {#if pattern.source === 'user'}
@@ -97,9 +98,8 @@
 {/if}
 
 <style>
-  .seg { display: flex; padding: 3px; background: var(--mb-muted); border-radius: 8px; margin-bottom: 12px; }
-  .seg button { flex: 1; display: inline-flex; align-items: center; justify-content: center; gap: 4px; border: 0; background: none; padding: 6px 4px; border-radius: 6px; font-weight: 600; color: var(--mb-muted-fg); font-size: 12px; }
-  .seg button.active { background: var(--mb-card); color: var(--mb-fg); box-shadow: 0 1px 2px rgb(0 0 0 / 0.1); }
+  .filter { margin-bottom: 12px; }
+  .pattern.unusable .preview { opacity: 0.55; cursor: not-allowed; }
   .hint { color: var(--mb-muted-fg); font-size: 11.5px; margin: 0 0 10px; }
   .pattern { position: relative; margin-bottom: 8px; }
   .preview { display: flex; gap: 10px; width: 100%; padding: 8px; border: 1px solid var(--mb-border); border-radius: 8px; background: var(--mb-card); text-align: start; }

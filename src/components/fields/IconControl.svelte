@@ -9,7 +9,11 @@
   let query = $state('');
   let host = $state();
 
+  // The theme renders Font Awesome classes, so the picker needs the same stylesheet to show glyphs. Pinned
+  // version with Subresource Integrity: the admin never runs a stylesheet the hash does not match.
   const FA_CSS = 'https://cdnjs.cloudflare.com/ajax/libs/font-awesome/7.0.1/css/all.min.css';
+  const FA_SRI = 'sha384-rWj9FmWWt3OMqd9vBkWRhFavvVUYalYqGPoMdL1brs/qvvqz88gvLShYa4hKNyqb';
+  const popId = 'mb-icons-' + Math.random().toString(36).slice(2, 8);
 
   const ICONS = ('bolt rocket star heart check circle-check shield-halved lock key user users user-tie handshake briefcase building ' +
     'chart-line chart-simple chart-pie bullseye trophy medal award gem crown lightbulb brain robot microchip code terminal ' +
@@ -38,40 +42,47 @@
     return /\bfa-(brands|solid|regular)\b|\bfa[brs]\b/.test(s) ? s : 'fa-solid ' + (s.startsWith('fa-') ? s : 'fa-' + s);
   };
 
+  function stylesheet() {
+    const link = document.createElement('link');
+    link.rel = 'stylesheet';
+    link.href = FA_CSS;
+    link.integrity = FA_SRI;
+    link.crossOrigin = 'anonymous';
+    link.dataset.mawFa = '1';
+    return link;
+  }
+
   onMount(() => {
     // @font-face only registers from the document, class rules only apply inside the shadow root: load in both.
-    if (!document.head.querySelector('link[data-maw-fa]')) {
-      const doc = document.createElement('link');
-      doc.rel = 'stylesheet';
-      doc.href = FA_CSS;
-      doc.dataset.mawFa = '1';
-      document.head.appendChild(doc);
-    }
+    if (!document.head.querySelector('link[data-maw-fa]')) document.head.appendChild(stylesheet());
     const root = host.getRootNode();
-    if (root instanceof ShadowRoot && !root.querySelector('link[data-fa]')) {
-      const link = document.createElement('link');
-      link.rel = 'stylesheet';
-      link.href = FA_CSS;
-      link.dataset.fa = '1';
-      root.prepend(link);
-    }
+    if (root instanceof ShadowRoot && !root.querySelector('link[data-maw-fa]')) root.prepend(stylesheet());
+    const outside = (e) => { if (open && !e.composedPath().includes(host)) open = false; };
+    document.addEventListener('pointerdown', outside, true);
+    return () => document.removeEventListener('pointerdown', outside, true);
   });
+
+  function onKey(e) {
+    if (e.key === 'Escape' && open) { e.preventDefault(); e.stopPropagation(); open = false; }
+  }
 </script>
 
-<div class="icon-control" bind:this={host}>
+<!-- svelte-ignore a11y_no_static_element_interactions -->
+<div class="icon-control" bind:this={host} onkeydown={onKey}>
   <div class="row">
-    <button type="button" class="current" onclick={() => (open = !open)} aria-expanded={open} title="Choose icon">
+    <button type="button" class="current" onclick={() => (open = !open)} aria-expanded={open} aria-controls={popId} title="Choose icon" aria-label="Choose icon">
       {#if value}<i class={cls(value)}></i>{:else}<Icon name="plus" size={14} />{/if}
     </button>
     <input class="mb-input" value={value} placeholder="fa-bolt" oninput={(e) => onchange(e.currentTarget.value)} />
     {#if value}<button type="button" class="mb-btn ghost icon sm" title="Clear" onclick={() => onchange('')}><Icon name="x" size={12} /></button>{/if}
   </div>
   {#if open}
-    <div class="pop">
-      <input class="mb-input" placeholder="Search icons" bind:value={query} />
+    <div class="pop" id={popId}>
+      <!-- svelte-ignore a11y_autofocus -->
+      <input class="mb-input" placeholder="Search icons" aria-label="Search icons" bind:value={query} autofocus />
       <div class="grid mb-scroll">
         {#each list as icon (icon)}
-          <button type="button" class:active={value === icon} title={icon.replace('fa-brands ', '')} onclick={() => { onchange(icon); open = false; }}>
+          <button type="button" class:active={value === icon} aria-pressed={value === icon} title={icon.replace('fa-brands ', '')} aria-label={icon.replace('fa-brands ', '')} onclick={() => { onchange(icon); open = false; }}>
             <i class={cls(icon)}></i>
           </button>
         {/each}

@@ -3,6 +3,7 @@
   import { onMount } from 'svelte';
   import Icon from '../Icon.svelte';
   import Dialog from '../Dialog.svelte';
+  import Segmented from '../Segmented.svelte';
   import { api } from '../../lib/api.js';
 
   let { store, current = '', onselect, onclose } = $props();
@@ -50,8 +51,15 @@
     if (t === 'site') loadSite();
   }
 
-  async function upload(files) {
-    if (!files?.length) return;
+  // Drag-and-drop bypasses the file input's `accept`, so filter dropped files the same way. The API plugin
+  // enforces its own allowlist and SVG sanitiser server-side; this only keeps the user's own mistakes out.
+  const IMAGE_FILE = /\.(jpe?g|png|gif|webp|avif|svg)$/i;
+  const onlyImages = (files) => [...(files || [])].filter((f) => f.type.startsWith('image/') || IMAGE_FILE.test(f.name));
+
+  async function upload(list) {
+    const files = onlyImages(list);
+    if (fileInput) fileInput.value = ''; // so the same file can be picked again after a failure
+    if (!files.length) { if (list?.length) error = 'Only image files can be uploaded here.'; return; }
     uploading = true; error = '';
     try {
       if (tab === 'site') { await api.uploadSiteMedia(files, sitePath); await loadSite(); }
@@ -90,11 +98,11 @@
        ondragleave={() => (dragOver = false)}
        ondrop={(e) => { e.preventDefault(); dragOver = false; upload(e.dataTransfer.files); }}>
     <div class="bar">
-      <div class="seg">
-        {#if !store.isSection}<button type="button" class:active={tab === 'page'} onclick={() => switchTab('page')}>{store.isFlex ? 'This item' : 'This page'}</button>{/if}
-        <button type="button" class:active={tab === 'site'} onclick={() => switchTab('site')}>Site library</button>
-        <button type="button" class:active={tab === 'url'} onclick={() => (tab = 'url')}>From URL</button>
-      </div>
+      <Segmented label="Source" value={tab} onchange={(t) => (t === 'url' ? (tab = 'url') : switchTab(t))} options={[
+        ...(store.isSection ? [] : [{ value: 'page', label: store.isFlex ? 'This item' : 'This page' }]),
+        { value: 'site', label: 'Site library' },
+        { value: 'url', label: 'From URL' },
+      ]} />
       {#if tab !== 'url'}
         <input class="mb-input search" placeholder="Filter by name" bind:value={search} />
         <input type="file" accept="image/*" multiple hidden bind:this={fileInput} onchange={(e) => upload(e.currentTarget.files)} />
@@ -158,9 +166,6 @@
   .lib.drag { outline: 2px dashed var(--mb-primary); outline-offset: 4px; }
   .bar { display: flex; gap: 8px; align-items: center; margin-bottom: 10px; }
   .search { max-width: 220px; margin-inline-start: auto; }
-  .seg { display: flex; padding: 3px; background: var(--mb-muted); border-radius: 8px; }
-  .seg button { border: 0; background: none; padding: 6px 12px; border-radius: 6px; font-weight: 600; color: var(--mb-muted-fg); }
-  .seg button.active { background: var(--mb-card); color: var(--mb-fg); box-shadow: 0 1px 2px rgb(0 0 0 / 0.1); }
   .grid { flex: 1; min-height: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); grid-auto-rows: max-content; gap: 10px; padding: 2px; }
   .tile { display: flex; flex-direction: column; gap: 5px; padding: 5px; border: 1px solid var(--mb-border); border-radius: 8px; background: var(--mb-card); text-align: start; }
   .tile:hover { border-color: var(--mb-primary); }

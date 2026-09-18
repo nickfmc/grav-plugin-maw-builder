@@ -7,6 +7,13 @@
   let open = $state(false);
   let broken = $state(false);
 
+  // While the library is open it is the builder's open modal: Escape closes it instead of deselecting the block.
+  $effect(() => {
+    if (!open) return;
+    store.modal = { close: () => (open = false) };
+    return () => { store.modal = null; };
+  });
+
   // Resolve a stored reference to something the admin can display.
   const previewUrl = $derived.by(() => {
     const v = String(value || '');
@@ -21,7 +28,7 @@
 </script>
 
 <div class="media">
-  <button type="button" class="thumb" onclick={() => (open = true)} title="Choose image">
+  <button type="button" class="thumb" onclick={() => (open = true)} title="Choose image" aria-label="Choose image">
     {#if previewUrl && !broken}
       <img src={previewUrl} alt="" onerror={() => (broken = true)} />
     {:else}
