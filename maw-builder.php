@@ -6,6 +6,7 @@ use Grav\Common\Page\Media;
 use Grav\Common\Page\Page;
 use Grav\Common\Plugin;
 use Grav\Plugin\MawBuilder\Controllers\BuilderController;
+use Grav\Plugin\MawBuilder\EditMarkers;
 use Grav\Plugin\MawBuilder\PreviewDraft;
 use Grav\Plugin\MawBuilder\RevisionStore;
 use Grav\Plugin\MawBuilder\SectionStore;
@@ -14,13 +15,15 @@ use RocketTheme\Toolbox\Event\Event;
 /**
  * MAW Builder: visual block builder for Admin2.
  *
- * - Registers `/api/v1/maw-builder/*` endpoints (block catalogue, patterns, preview drafts).
+ * - Registers `/api/v1/maw-builder/*` endpoints (block catalogue, patterns, preview drafts, sections, revisions).
  * - Swaps `blocks` list fields for the `blocks` custom field (admin-next/fields/blocks.js) in page and Flex blueprints.
+ * - Owns the inline-editing Twig functions themes call (classes/EditMarkers.php).
  * - Renders unsaved drafts on the front end:
  *     pages:        <page url>?maw_preview=<id>      (the real page, blocks replaced)
- *     flex objects: /_maw-preview/<id>               (a virtual `blocks` page using the object's media folder)
+ *     flex objects: /_maw-preview/<id>               (a virtual page using the object's media folder)
  *
- * Events are subscribed statically. Never gate on isAdmin(): Admin2 sets admin context late.
+ * Events are subscribed statically. The two front-end hooks return early under the admin because they only make
+ * sense for a rendered page; Admin2 itself never reaches them.
  */
 class MawBuilderPlugin extends Plugin
 {
@@ -35,22 +38,31 @@ class MawBuilderPlugin extends Plugin
             'onPageInitialized'      => ['onPageInitialized', 100],
             'onTwigSiteVariables'    => ['onTwigSiteVariables', 0],
             'onTwigTemplatePaths'    => ['onTwigTemplatePaths', 0],
-            'onTwigInitialized'      => ['onTwigInitialized', 0],
+            // Before the theme's own onTwigInitialized (priority 0), so a theme can see the markers are registered.
+            'onTwigInitialized'      => ['onTwigInitialized', 10],
             'onAdminSave'            => ['onAdminSave', 0],
             'onAdminAfterSave'       => ['onAdminAfterSave', 0],
         ];
     }
 
     /**
-     * Twig helpers used by templates/blocks/global.html.twig and the theme:
+     * Twig helpers:
      *   maw_global_section(id)  → {id, title, blocks} or null
      *   maw_preview_active()    → true while rendering inside the builder preview
+     *   maw_edit*()             → inline-editing markers (EditMarkers)
      */
     public function onTwigInitialized(): void
     {
         $env = $this->grav['twig']->twig;
         $env->addFunction(new \Twig\TwigFunction('maw_global_section', fn ($id) => (new SectionStore($this->grav))->get((string) $id)));
-        $env->addFunction(new \Twig\TwigFunction('maw_preview_active', fn () => isset($this->grav['maw_preview'])));
+        $env->addFunction(new \Twig\TwigFunction('maw_preview_active', fn () => $this->previewActive()));
+        EditMarkers::register($env, fn () => $this->previewActive());
+        $this->grav[EditMarkers::REGISTERED] = true;
+    }
+
+    private function previewActive(): bool
+    {
+        return isset($this->grav['maw_preview']);
     }
 
     /**
@@ -85,29 +97,37 @@ class MawBuilderPlugin extends Plugin
 
     /**
      * Keep `blocks` a list. Admin2 can apply list-item defaults to the list itself on create
-     * (`blocks: {type: rich-text, ...}`), which no renderer can use. Fired by the API for pages and Flex objects.
+     * (`blocks: {type: rich-text, ...}`), which no renderer can use.
+     *
+     * Only pages: the Flex Objects API fires onAdminAfterSave alone. A map whose values are themselves blocks
+     * (numeric string keys after a delete, for instance) is re-indexed and a lone block map is wrapped; anything
+     * else is left as it is and logged, because throwing the author's content away silently is never the repair.
      */
     public function onAdminSave(Event $event): void
     {
         $object = $event['object'] ?? null;
-        if ($object instanceof \Grav\Common\Page\Interfaces\PageInterface) {
-            $header = $object->header();
-            $changed = false;
-            foreach (['blocks', 'blocks_after'] as $key) {
-                if (isset($header->{$key}) && !(is_array($header->{$key}) && array_is_list($header->{$key}))) {
-                    $header->{$key} = [];
-                    $changed = true;
+        if (!$object instanceof \Grav\Common\Page\Interfaces\PageInterface) {
+            return;
+        }
+        $header = $object->header();
+        foreach (['blocks', 'blocks_after'] as $key) {
+            $value = $header->{$key} ?? null;
+            if ($value === null || !is_array($value) || array_is_list($value)) {
+                continue;
+            }
+            $allBlocks = $value !== [];
+            foreach ($value as $item) {
+                if (!is_array($item) || !isset($item['type'])) {
+                    $allBlocks = false;
+                    break;
                 }
             }
-            if ($changed) {
-                $object->header($header);
-            }
-        } elseif (is_object($object) && method_exists($object, 'getProperty') && method_exists($object, 'setProperty')) {
-            foreach (['blocks', 'blocks_after'] as $key) {
-                $value = $object->getProperty($key);
-                if ($value !== null && !(is_array($value) && array_is_list($value))) {
-                    $object->setProperty($key, []);
-                }
+            if ($allBlocks) {
+                $header->{$key} = array_values($value);
+            } elseif (isset($value['type'])) {
+                $header->{$key} = [$value];
+            } else {
+                $this->grav['log']->warning("maw-builder: '{$key}' on {$object->route()} is not a list of blocks; left untouched.");
             }
         }
     }
@@ -209,7 +229,11 @@ class MawBuilderPlugin extends Plugin
         $page->rawRoute($route);
         $header = $page->header();
         $header->title = (string) ($draft['title'] ?? 'Preview');
+        // The theme's page template for a page made only of blocks (`blocks` in maw-starter).
+        $template = preg_replace('/[^a-z0-9_-]/i', '', (string) $this->config->get('plugins.maw-builder.preview_template', 'blocks')) ?: 'blocks';
+        $header->template = $template;
         $page->header($header);
+        $page->template($template);
         $page->title($header->title);
 
         $folder = $draft['media_folder'] ?? null;
@@ -225,8 +249,15 @@ class MawBuilderPlugin extends Plugin
             $object = $directory->getObject((string) $flexRef['key']);
             if ($object) {
                 $object->setProperty($draft['field'] ?? 'blocks', $draft['blocks']);
+                // {% render %} caches by object key and stored checksum, neither of which an in-memory change
+                // touches (FlexObject::getCacheKey / getCacheChecksum), so a warm entry would show the saved
+                // object instead of the draft.
+                try {
+                    $directory->getCache('render')->clear();
+                } catch (\Throwable $e) {
+                    $this->grav['log']->warning('maw-builder: could not clear Flex render cache: ' . $e->getMessage());
+                }
                 $this->grav['maw_preview_object'] = $object;
-                $header = $page->header();
                 $header->template = 'maw-builder/flex-preview';
                 $page->header($header);
                 $page->template('maw-builder/flex-preview');
@@ -262,18 +293,23 @@ class MawBuilderPlugin extends Plugin
             return;
         }
 
-        $header = $page->header();
-        $header->{$draft['field'] ?? 'blocks'} = $draft['blocks'];
-        $page->header($header);
-
-        $this->grav['config']->set('system.cache.enabled', false);
-        $this->grav['config']->set('system.pages.markdown_output.enabled', false);
+        // header() returns the live object: mutate it in place. Passing it back through the setter would
+        // re-derive `published`/`routable` from the frontmatter (Page::header in Grav 2), undoing the API's
+        // in-memory unlock of an unpublished page for this preview.
+        $page->header()->{$draft['field'] ?? 'blocks'} = $draft['blocks'];
         $this->grav['maw_preview'] = true;
 
+        // Markdown output would serve the saved body instead of this render.
+        $this->grav['config']->set('system.pages.markdown_output.enabled', false);
+
+        // Page::httpHeaders() overwrites a Cache-Control set with header(); these are the supported knobs.
+        $page->expires(0);
+        $page->cacheControl('no-store, max-age=0');
         if (!headers_sent()) {
             header('X-Robots-Tag: noindex, nofollow');
-            header('Cache-Control: no-store, max-age=0');
             header("Content-Security-Policy: frame-ancestors 'self'");
+            // The draft id is a bearer capability in the URL: keep it out of third-party asset requests.
+            header('Referrer-Policy: no-referrer');
         }
     }
 
@@ -285,11 +321,14 @@ class MawBuilderPlugin extends Plugin
 
     public function onTwigSiteVariables(): void
     {
-        if (!isset($this->grav['maw_preview'])) {
+        if (!$this->previewActive()) {
             return;
         }
+        $twig = $this->grav['twig'];
+        // `maw_preview` as a plain variable, so a theme template can test it without depending on this plugin's functions.
+        $twig->twig_vars['maw_preview'] = true;
         if (isset($this->grav['maw_preview_object'])) {
-            $this->grav['twig']->twig_vars['maw_preview_object'] = $this->grav['maw_preview_object'];
+            $twig->twig_vars['maw_preview_object'] = $this->grav['maw_preview_object'];
         }
         $assets = $this->grav['assets'];
         $assets->addCss('plugin://maw-builder/assets/preview-bridge.css', 1);

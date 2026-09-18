@@ -33,13 +33,20 @@ class BuilderController extends AbstractApiController
 {
     private const PERMISSION = 'api.pages.write';
 
+    private ?BlockRegistry $registry = null;
+
+    private function registry(): BlockRegistry
+    {
+        return $this->registry ??= new BlockRegistry($this->grav);
+    }
+
     /* ================================================================ catalogue & patterns */
 
     /** GET /maw-builder/blocks */
     public function blocks(ServerRequestInterface $request): ResponseInterface
     {
         $this->requirePermission($request, self::PERMISSION);
-        $registry = new BlockRegistry($this->grav);
+        $registry = $this->registry();
         if (!$registry->available()) {
             throw new NotFoundException('The active theme has no blueprints/blocks folder.');
         }
@@ -59,7 +66,7 @@ class BuilderController extends AbstractApiController
     {
         $this->requirePermission($request, self::PERMISSION);
 
-        return ApiResponse::create((new PatternStore($this->grav))->all());
+        return ApiResponse::create((new PatternStore($this->grav, $this->registry()))->all());
     }
 
     /** POST /maw-builder/patterns  {title, category, description, blocks} */
@@ -71,7 +78,7 @@ class BuilderController extends AbstractApiController
         if ($title === '') {
             throw new ValidationException('A pattern needs a title.');
         }
-        $pattern = (new PatternStore($this->grav))->save(
+        $pattern = (new PatternStore($this->grav, $this->registry()))->save(
             mb_substr($title, 0, 80),
             (string) ($body['category'] ?? 'section'),
             mb_substr(trim((string) ($body['description'] ?? '')), 0, 200),
@@ -85,7 +92,7 @@ class BuilderController extends AbstractApiController
     public function deletePattern(ServerRequestInterface $request): ResponseInterface
     {
         $this->requirePermission($request, self::PERMISSION);
-        $id = urldecode((string) $this->getRouteParam($request, 'id'));
+        $id = (string) $this->getRouteParam($request, 'id');
         if (!(new PatternStore($this->grav))->delete($id)) {
             throw new NotFoundException('Pattern not found (shipped patterns cannot be deleted).');
         }
@@ -115,11 +122,13 @@ class BuilderController extends AbstractApiController
             $page = $owner['page'];
             $id = $drafts->put((string) $page->route(), $blocks, $field, (string) $user->username);
 
-            // Unpublished pages 404 on the front end; reuse the API's route-scoped preview token to unlock them.
+            // Unpublished and non-routable pages 404 on the front end; the API's route-scoped preview token unlocks
+            // exactly this page for this user, for the lifetime the API is configured with.
             $query = ['maw_preview' => $id, 'admin_preview' => 1];
-            if (!$page->published() && $this->config->get('plugins.api.allow_draft_preview', true)) {
+            if ((!$page->published() || !$page->routable()) && $this->config->get('plugins.api.allow_draft_preview', true)) {
                 $jwt = new JwtAuthenticator($this->grav, $this->config);
-                $query['preview_token'] = $jwt->generatePreviewToken($user, $page->route(), 300);
+                $ttl = max(30, (int) $this->config->get('plugins.api.preview_token_ttl', 300));
+                $query['preview_token'] = $jwt->generatePreviewToken($user, $page->route(), $ttl);
             }
 
             return ApiResponse::create(['id' => $id, 'url' => $page->url() . '?' . http_build_query($query), 'route' => $page->route()]);
@@ -456,7 +465,7 @@ class BuilderController extends AbstractApiController
             return $this->resolveFlexOwner($request, $params);
         }
 
-        $this->requirePermission($request, self::PERMISSION);
+        $this->getUser($request); // 401 before anything about the page is revealed
         $route = '/' . trim((string) ($params['route'] ?? ''), '/');
         $pages = $this->grav['pages'];
         $pages->enablePages();
@@ -464,6 +473,8 @@ class BuilderController extends AbstractApiController
         if (!$page) {
             throw new NotFoundException("Page not found at route: {$route}");
         }
+        // The same per-page rules the API applies to saving it (frontmatter `permissions`, page-level grants).
+        $this->authorizePageAction($request, $page, 'update', self::PERMISSION);
         $field = in_array($params['field'] ?? 'blocks', ['blocks', 'blocks_after'], true) ? (string) ($params['field'] ?? 'blocks') : 'blocks';
         $saved = $page->header()->{$field} ?? [];
         $file = $page->filePath();
@@ -494,9 +505,11 @@ class BuilderController extends AbstractApiController
             throw new NotFoundException("Object '{$key}' not found in '{$type}'.");
         }
 
-        // Same rules as the Flex Objects API: super admins (api.super) pass; others need <prefix>.update from the
-        // directory's `admin.permissions`. Flex's own isAuthorized() applies a 'test' scope with an explicit user.
+        // Same rules as the Flex Objects API: the API-key scope cap first (a narrowly scoped key on a super
+        // account must not reach every directory), then super admins pass, then <prefix>.update from the
+        // directory's `admin.permissions`.
         $user = $this->getUser($request);
+        $this->requireFlexScope($request, $directory, 'update');
         $allowed = $this->isSuperAdmin($user);
         if (!$allowed && class_exists(\Grav\Plugin\FlexObjects\Api\DirectoryPermission::class)) {
             $allowed = \Grav\Plugin\FlexObjects\Api\DirectoryPermission::isAuthorized($directory, 'update', $user, $this->getPermissionResolver());
@@ -536,16 +549,42 @@ class BuilderController extends AbstractApiController
         if (strlen((string) json_encode($blocks)) > $maxKb * 1024) {
             throw new ValidationException("Blocks payload exceeds {$maxKb} KB.");
         }
-        $registry = new BlockRegistry($this->grav);
-        $out = [];
-        foreach ($blocks as $block) {
-            if (!is_array($block) || !is_string($block['type'] ?? null) || !$registry->has($block['type'])) {
-                continue;
-            }
-            $out[] = $registry->canonical($block);
+        $result = $this->registry()->normalize($blocks);
+        if ($result['invalid']) {
+            throw new ValidationException('Every block needs a `type` (a lowercase slug).', array_map(
+                fn ($i) => ['field' => "blocks.{$i}.type", 'message' => 'Missing or malformed block type.'],
+                $result['invalid']
+            ));
         }
 
-        return $out;
+        // Blocks of a type the theme does not define are kept: the theme renders its "missing block" notice and
+        // the builder shows them as unknown. Dropping them here would delete content on the next save.
+        return $result['blocks'];
+    }
+
+    /**
+     * API-key scope cap for Flex directories, mirroring FlexApiController::requireFlexScope() (GHSA-x7hm):
+     * a key minted with scopes may only reach a directory whose permission prefix (or the generic
+     * admin.flex-object) one of those scopes covers.
+     */
+    private function requireFlexScope(ServerRequestInterface $request, object $directory, string $action): void
+    {
+        $scopes = $request->getAttribute('api_key_scopes');
+        if (!is_array($scopes) || $scopes === []) {
+            return;
+        }
+        $candidates = ['admin.flex-object.' . $action];
+        foreach (array_keys((array) ($directory->getConfig('admin.permissions') ?? [])) as $prefix) {
+            $candidates[] = $prefix . '.' . $action;
+        }
+        foreach ($candidates as $permission) {
+            foreach ($scopes as $scope) {
+                if (is_string($scope) && $scope !== '' && ($scope === '*' || $scope === $permission || str_starts_with($permission, $scope . '.'))) {
+                    return;
+                }
+            }
+        }
+        throw new ForbiddenException("API key is not authorized for the '{$action}' action on '{$directory->getFlexType()}'.");
     }
 
     private function homeRoute(): string

@@ -1,7 +1,11 @@
 enabled: true
 replace_field: true
 preview_ttl: 900
+# Theme page template used for standalone previews (Flex objects): a page made only of blocks.
+preview_template: blocks
 max_payload_kb: 512
+revisions:
+  keep: 50
 devices:
   tablet: 820
   mobile: 390

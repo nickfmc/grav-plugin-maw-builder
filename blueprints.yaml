@@ -1,7 +1,7 @@
 name: MAW Builder
 slug: maw-builder
 type: plugin
-version: 1.1.0
+version: 1.2.0
 homepage: https://github.com/nickfmc/grav-plugin-maw-builder
 bugs: https://github.com/nickfmc/grav-plugin-maw-builder/issues
 description: WordPress-style visual page builder for Admin2. Live preview, block inserter, patterns, media picker. Saves plain `blocks:` YAML.
@@ -42,6 +42,21 @@ form:
       label: Preview draft lifetime (seconds)
       default: 900
       validate: { type: int, min: 60 }
+    preview_template:
+      type: text
+      label: Preview page template
+      help: The theme template that renders a page made only of blocks; used for Flex object previews.
+      default: blocks
+    max_payload_kb:
+      type: number
+      label: Largest blocks payload (KB)
+      default: 512
+      validate: { type: int, min: 64 }
+    revisions.keep:
+      type: number
+      label: Revisions kept per page
+      default: 50
+      validate: { type: int, min: 5 }
     devices:
       type: fieldset
       title: Device preview widths
