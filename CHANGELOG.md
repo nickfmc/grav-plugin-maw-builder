@@ -1,5 +1,9 @@
 # Changelog
 
+## v1.2.2 (2026-10-01)
+
+- **Security: the preview is sandboxed.** The builder's iframe had `allow-same-origin allow-scripts`, which is no sandbox: any script on the previewed page (theme JS, an embed, another plugin) ran as Admin2's origin and could read its API token (`window.parent.__GRAV_API_TOKEN`) and the stored JWT (`grav_admin_auth::<basePath>`). The iframe now has `allow-scripts` only, so the page runs in an opaque origin. The bridge talks only to the origin it learns from the parent's first message, and the builder accepts messages only from its own iframes. For themes: storage and cookies throw inside the preview, and self-hosted fonts need `Access-Control-Allow-Origin` there (README, Previews).
+
 ## v1.2.0 (2026-09-18)
 
 Audit release: the block contract, the preview hook and the editor were reworked so nothing an author writes is lost and every Grav 2 assumption holds against the installed core.
