@@ -7,7 +7,7 @@ import { post, on } from './bridge.js';
 import { indexOf, place, shadowHost } from './dom.js';
 import { interaction } from './interaction.js';
 import { isSaveKey, saveFromEdit } from './keys.js';
-import { htmlToMarkdown, normalize, roundTrips } from './markdown.js';
+import { htmlToMarkdown, normalize, roundTrips, unsafeHref } from './markdown.js';
 
 let md = null;   // {el, index, path, inline, mode: 'visual' | 'source', source, original, savedRange}
 let seq = 0;     // start sequence: a second click while the source is still loading supersedes the first
@@ -208,7 +208,7 @@ function toolbarCommand(cmd) {
     const url = ui.linkInput.value.trim();
     if (cmd === 'link-apply') {
       if (!url) document.execCommand('unlink');
-      else if (!/^\s*javascript:/i.test(url)) {
+      else if (!unsafeHref(url)) {
         if (window.getSelection().isCollapsed) document.execCommand('insertText', false, url);
         if (window.getSelection().isCollapsed && md.savedRange) {
           // Select the text just inserted so it becomes the link label.

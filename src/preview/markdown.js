@@ -12,7 +12,16 @@ const ALLOWED_INLINE = new Set(['STRONG', 'B', 'EM', 'I', 'A', 'CODE', 'BR', 'SP
 const ALLOWED_BLOCK = new Set(['P', 'DIV', 'UL', 'OL', 'LI', 'H2', 'H3', 'H4']);
 const OTHER_BLOCK = /^(H1|H5|H6|BLOCKQUOTE|PRE|TABLE|SECTION)$/;
 
-export const escapeText = (s) => s.replace(/\\/g, '\\\\').replace(/([*_`[\]])/g, '\\$1');
+// Parsedown has no backslash escape for `<` (it is not in Parsedown::$specialCharacters), so `\<` would still open raw
+// HTML: it becomes `&lt;`. `&` is escaped only where Parsedown would read an entity (inlineSpecialCharacter).
+export const escapeText = (s) => s
+  .replace(/\\/g, '\\\\')
+  .replace(/([*_`[\]])/g, '\\$1')
+  .replace(/&(?=#?\w+;)/g, '&amp;')
+  .replace(/</g, '&lt;');
+
+/** Link targets that run script or carry their own document. Browsers drop whitespace and controls in a scheme. */
+export const unsafeHref = (href) => /^(javascript|vbscript|data):/i.test(String(href ?? '').replace(/[\x00-\x20]+/g, ''));
 
 const isText = (n) => n.nodeType === 3;
 const isEl = (n) => n.nodeType === 1;
@@ -51,7 +60,7 @@ export function htmlToMarkdown(root, { inline = false, lenient = false } = {}) {
       else if (tag === 'CODE') out += '`' + n.textContent + '`';
       else if (tag === 'A') {
         const href = n.getAttribute('href') || '';
-        if (/^\s*javascript:/i.test(href)) { unsafe(); out += inner; }
+        if (unsafeHref(href)) { unsafe(); out += inner; }
         else out += '[' + inner + '](' + href + ')';
       } else out += inner;
     }
@@ -110,6 +119,7 @@ export function normalize(s) {
     .replace(/^[ \t]*(\d+)\)[ \t]+/gm, '$1. ')
     .replace(/^[ \t]*\d+\.[ \t]+/gm, '1. ')
     .replace(/\\([*_`[\]\\])/g, '$1')
+    .replace(/&(lt|gt|amp);/g, (_, e) => ({ lt: '<', gt: '>', amp: '&' })[e])
     .replace(/[ \t]+\n/g, '\n')
     .replace(/\n{3,}/g, '\n\n')
     .replace(/[ \t]+/g, ' ')

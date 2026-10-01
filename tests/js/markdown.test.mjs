@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { htmlToMarkdown, normalize, roundTrips, escapeText, UnsafeMarkup } from '../../src/preview/markdown.js';
+import { htmlToMarkdown, normalize, roundTrips, escapeText, unsafeHref, UnsafeMarkup } from '../../src/preview/markdown.js';
 
 // Tiny node-shaped tree builder: t('text'), el('p', {href}, ...children)
 const t = (s) => ({ nodeType: 3, nodeValue: s });
@@ -50,9 +50,28 @@ test('text is escaped so it survives re-rendering', () => {
   assert.equal(htmlToMarkdown(root(el('p', {}, t('2 * 3 = 6')))), '2 \\* 3 = 6');
 });
 
+test('text that looks like HTML or an entity stays text', () => {
+  assert.equal(escapeText('a <b> c'), 'a &lt;b> c');
+  assert.equal(escapeText('&amp; &#39; &x1;'), '&amp;amp; &amp;#39; &amp;x1;');
+  assert.equal(escapeText('Tom & Jerry, a&b'), 'Tom & Jerry, a&b', 'a bare & is already literal');
+  assert.equal(htmlToMarkdown(root(el('p', {}, t('<img src=x onerror=alert(1)>')))), '&lt;img src=x onerror=alert(1)>');
+  assert.equal(htmlToMarkdown(root(t('<b>x</b> &lt;')), { inline: true }), '&lt;b>x&lt;/b> &amp;lt;');
+});
+
+test('script and data links are refused like javascript:', () => {
+  for (const href of ['javascript:alert(1)', 'data:text/html,<script>alert(1)</script>', 'vbscript:msgbox(1)', ' JaVaScRiPt:x', 'java\tscript:x', '\x00data:x', 'DATA:image/svg+xml,x']) {
+    assert.equal(unsafeHref(href), true, href);
+    const html = root(el('p', {}, el('a', { href }, t('x'))));
+    assert.throws(() => htmlToMarkdown(html), UnsafeMarkup, href);
+    assert.equal(htmlToMarkdown(html, { lenient: true }), 'x', href);
+  }
+  for (const href of ['https://example.com', '/about', '#top', 'mailto:a@b.c', 'tel:123', 'my-data:x', '']) assert.equal(unsafeHref(href), false, href);
+});
+
 test('normalize makes equivalent Markdown spellings compare equal', () => {
   assert.equal(normalize('__bold__ and _it_\r\n\r\n* one\n+ two\n\n2) three'), normalize('**bold** and *it*\n\n- one\n- two\n\n1. three'));
   assert.equal(normalize('a\\*b'), normalize('a*b'));
+  assert.equal(normalize('a &lt; b &amp; c'), normalize('a < b & c'));
 });
 
 test('roundTrips decides visual versus source editing', () => {
@@ -61,4 +80,7 @@ test('roundTrips decides visual versus source editing', () => {
   assert.equal(roundTrips(simple, 'Hello world'), false, 'stored source differs');
   assert.equal(roundTrips(root(el('table')), '|a|'), false, 'unsupported markup');
   assert.equal(roundTrips(root(t('a '), el('em', {}, t('b'))), 'a *b*', true), true);
+  const lt = root(el('p', {}, t('a < b')));
+  assert.equal(roundTrips(lt, 'a < b'), true, 'a bare < renders as text');
+  assert.equal(roundTrips(lt, 'a &lt; b'), true);
 });
