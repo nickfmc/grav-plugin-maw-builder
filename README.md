@@ -93,6 +93,11 @@ Events: `onMawGlobalSectionChanged` (`{id, action}`), a hook for CDN purges.
 
 A preview draft id is a bearer capability: anyone holding it can render that draft until `preview_ttl` expires. The id is 192 random bits and preview responses carry `Referrer-Policy: no-referrer`, `Cache-Control: no-store` and `X-Robots-Tag: noindex`. Unpublished or non-routable pages are unlocked for the preview with the API's route-scoped token, for `plugins.api.preview_token_ttl`.
 
+The preview iframe is sandboxed with `allow-scripts` only, so the previewed page runs in an opaque origin. Its scripts (the theme's, an embed's, another plugin's) cannot reach Admin2's window, its API token or its storage. The bridge learns the builder's origin from the parent's first message. Inside the preview:
+
+- `localStorage`, `sessionStorage` and `document.cookie` throw, so a theme guards them with `try`/`catch`.
+- Requests made in CORS mode to the site itself are cross-origin and need `Access-Control-Allow-Origin`. That covers web fonts, `type="module"` scripts and `fetch()`. Self-hosted fonts otherwise fall back in the preview only. On nginx, add this after Grav's deny rules: `location ~* \.(woff2?|ttf|otf)$ { add_header Access-Control-Allow-Origin "*"; try_files $uri =404; }`. On Apache with mod_headers: `<FilesMatch "\.(woff2?|ttf|otf)$"> Header set Access-Control-Allow-Origin "*" </FilesMatch>`.
+
 ## Storage
 
 - `user/data/maw-builder/sections/*.yaml`: global sections (commit these).

@@ -1,8 +1,9 @@
 /*
  * MAW Builder preview bridge. Loaded only on builder preview requests, inside the builder iframe.
- * Talks to the parent builder with same-origin postMessage:
- *   → parent: {source:'maw-preview', type:'ready'|'hover'|'select'|'rects'|'inline'|'inline-md'|'inline-start'|'inline-end'|'list-op'|'image-pick'|'md-request'|'key'|'paste', ...}
- *   ← parent: {source:'maw-builder', type:'select' (index, multi, scroll)|'scrollTo' (y)|'readonly' (value)|'focus-edit' (index, path)|'md-value' (req, value)}
+ * Runs sandboxed (opaque origin) and talks to the parent builder with postMessage; bridge.js learns the builder's
+ * origin from its first message (the answer to `hello`) and holds everything else until then:
+ *   → parent: {source:'maw-preview', type:'hello'|'ready'|'hover'|'select'|'rects'|'inline'|'inline-md'|'inline-start'|'inline-end'|'list-op'|'image-pick'|'md-request'|'key'|'paste', ...}
+ *   ← parent: {source:'maw-builder', type:'hello'|'select' (index, multi, scroll)|'scrollTo' (y)|'readonly' (value)|'focus-edit' (index, path)|'md-value' (req, value)}
  *
  * One job per module: bridge (messages), dom (blocks and rects), interaction (the single owner of the current edit),
  * edit-text, edit-markdown (+ markdown, the pure converter), images, lists, keys, palette. This file wires clicks,
