@@ -1,6 +1,6 @@
 {
   "name": "grav-plugin-maw-builder",
-  "version": "1.2.0",
+  "version": "1.2.1",
   "private": true,
   "type": "module",
   "description": "Visual block builder for Grav Admin2. Builds admin-next/fields/blocks.js and assets/preview-bridge.js.",

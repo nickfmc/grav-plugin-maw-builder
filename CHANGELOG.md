@@ -1,5 +1,12 @@
 # Changelog
 
+## v1.2.1 (2026-10-01)
+
+- **Visual Markdown keeps text as text.** `<` typed on the canvas is stored as `&lt;` (Parsedown has no `\<` escape, so it became raw HTML on the page), and `&` where it would read as an entity. `data:` and `vbscript:` links are refused like `javascript:`, in the converter and the link toolbar.
+- **A visual edit changes only what it touched.** List numbers, `__`/`_` emphasis and bullet markers elsewhere in the field stay as written (normalising is for comparison only), and a list that gains or loses items keeps its numbering style. Visual edits carried into the Markdown popover are no longer dropped on Apply.
+- **Saving with Admin2's own Save button** no longer leaves the builder dirty or warns that a newer version was saved after you opened it: a newer version holding exactly the builder's blocks is taken as its own save. Opening a global section no longer resets the page's base.
+- **Only `blocks` and `blocks_after`.** A field declared `type: blocks` under another name shows a notice and keeps its stored value, instead of previewing, confirming and backing up against `blocks`.
+
 ## v1.2.0 (2026-09-18)
 
 Audit release: the block contract, the preview hook and the editor were reworked so nothing an author writes is lost and every Grav 2 assumption holds against the installed core.

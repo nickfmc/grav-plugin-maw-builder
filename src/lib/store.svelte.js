@@ -149,6 +149,31 @@ export class BuilderStore {
     } catch { /* keep the old base */ }
   }
 
+  /**
+   * A newer version is saved: when it holds exactly our blocks it is our own save, so it becomes the base and nothing
+   * of ours is unsaved. Admin2's Save button saves the form without telling the field (no `grav:editor:save`, no new
+   * `value`), so this is where such a save is noticed. Returns whether it was ours.
+   */
+  async adoptSaved() {
+    if (this.isSection) return false; // sections have their own conflict check (`rev`)
+    const owner = this.ownerKey;
+    const blocks = this.snapshot();
+    let state;
+    try {
+      state = await api.state(this.context, this.fieldName, blocks);
+    } catch {
+      return false;
+    }
+    if (!state?.matches || owner !== this.ownerKey) return false;
+    this.baseModified = state.modified || this.baseModified;
+    if (JSON.stringify(this.snapshot()) === JSON.stringify(blocks)) {
+      this.dirty = false;
+      this.clearBackup();
+    }
+    this.revisionTick++;
+    return true;
+  }
+
   // ─── selection ───────────────────────────────────────────
 
   /** Selected block indexes (one or many), sorted. */
@@ -563,6 +588,7 @@ export class BuilderStore {
       selected: this.selected,
       past: this.#past,
       future: this.#future,
+      baseModified: this.baseModified,
     };
     this.#past = [];
     this.#future = [];
@@ -602,6 +628,7 @@ export class BuilderStore {
     this.selected = state.selected;
     this.#past = state.past;
     this.#future = state.future;
+    this.baseModified = state.baseModified;
     this.recovery = null;
     this.#sync();
     this.busy = 'Back to page…';

@@ -12,7 +12,16 @@ const ALLOWED_INLINE = new Set(['STRONG', 'B', 'EM', 'I', 'A', 'CODE', 'BR', 'SP
 const ALLOWED_BLOCK = new Set(['P', 'DIV', 'UL', 'OL', 'LI', 'H2', 'H3', 'H4']);
 const OTHER_BLOCK = /^(H1|H5|H6|BLOCKQUOTE|PRE|TABLE|SECTION)$/;
 
-export const escapeText = (s) => s.replace(/\\/g, '\\\\').replace(/([*_`[\]])/g, '\\$1');
+// Parsedown has no backslash escape for `<` (it is not in Parsedown::$specialCharacters), so `\<` would still open raw
+// HTML: it becomes `&lt;`. `&` is escaped only where Parsedown would read an entity (inlineSpecialCharacter).
+export const escapeText = (s) => s
+  .replace(/\\/g, '\\\\')
+  .replace(/([*_`[\]])/g, '\\$1')
+  .replace(/&(?=#?\w+;)/g, '&amp;')
+  .replace(/</g, '&lt;');
+
+/** Link targets that run script or carry their own document. Browsers drop whitespace and controls in a scheme. */
+export const unsafeHref = (href) => /^(javascript|vbscript|data):/i.test(String(href ?? '').replace(/[\x00-\x20]+/g, ''));
 
 const isText = (n) => n.nodeType === 3;
 const isEl = (n) => n.nodeType === 1;
@@ -51,7 +60,7 @@ export function htmlToMarkdown(root, { inline = false, lenient = false } = {}) {
       else if (tag === 'CODE') out += '`' + n.textContent + '`';
       else if (tag === 'A') {
         const href = n.getAttribute('href') || '';
-        if (/^\s*javascript:/i.test(href)) { unsafe(); out += inner; }
+        if (unsafeHref(href)) { unsafe(); out += inner; }
         else out += '[' + inner + '](' + href + ')';
       } else out += inner;
     }
@@ -79,7 +88,7 @@ export function htmlToMarkdown(root, { inline = false, lenient = false } = {}) {
         parts.push('#'.repeat(Number(tag[1])) + ' ' + inlineOf(n).trim());
       } else if (tag === 'UL' || tag === 'OL') {
         const items = [];
-        let i = 1;
+        let i = tag === 'OL' ? parseInt(n.getAttribute('start'), 10) || 1 : 1;
         for (const li of kids(n)) {
           if (isText(li) && !li.nodeValue.trim()) continue;
           if (!isEl(li) || li.tagName !== 'LI') { unsafe(); continue; }
@@ -100,6 +109,93 @@ export function htmlToMarkdown(root, { inline = false, lenient = false } = {}) {
   return parts.join('\n\n');
 }
 
+const ORDERED = /^([ \t]*)(\d+)([.)][ \t]+)/;
+const BULLET = /^([ \t]*)([-*+])([ \t]+)/;
+
+/**
+ * What a visual edit commits: the converted Markdown with the author's own spelling kept for every line the edit
+ * did not change. htmlToMarkdown() writes one spelling (`**`, `*`, `-`, `1.` `2.` `3.`) that normalize() only folds
+ * for comparison; committed as is, one changed word would renumber every list and restyle every emphasis.
+ */
+export function committedMarkdown(root, stored, inline = false) {
+  return preserveSource(stored, htmlToMarkdown(root, { inline, lenient: true }));
+}
+
+/**
+ * `converted`, with each line that matches a line of `source` (compared normalised, aligned in order) taken from
+ * `source`, and each changed list item keeping the marker of the item it replaces. A list that gained or lost items
+ * keeps its numbering: sequential from its first number, or one repeated number.
+ */
+export function preserveSource(source, converted) {
+  const stored = String(source ?? '');
+  if (normalize(stored) === normalize(converted)) return stored;
+  const a = stored.replace(/\r\n?/g, '\n').replace(/^\n+|\s+$/g, '').split('\n');
+  const b = String(converted ?? '').split('\n');
+  const na = a.map(normalize), nb = b.map(normalize);
+
+  // Longest common subsequence of normalised lines (fields are short).
+  const lcs = Array.from({ length: a.length + 1 }, () => new Array(b.length + 1).fill(0));
+  for (let i = a.length - 1; i >= 0; i--) {
+    for (let j = b.length - 1; j >= 0; j--) {
+      lcs[i][j] = na[i] === nb[j] ? lcs[i + 1][j + 1] + 1 : Math.max(lcs[i + 1][j], lcs[i][j + 1]);
+    }
+  }
+  const lines = []; // {text, from: index in a | null, added: no source line behind it}
+  let removed = [];
+  for (let i = 0, j = 0; j < b.length;) {
+    if (i < a.length && na[i] === nb[j]) {
+      lines.push({ text: a[i], from: i, added: false });
+      removed = [];
+      i++; j++;
+    } else if (i < a.length && lcs[i + 1][j] >= lcs[i][j + 1]) {
+      removed.push(i++);
+    } else {
+      const k = removed.shift();
+      lines.push({ text: k === undefined ? b[j] : keepMarker(a[k], b[j]), from: k ?? null, added: k === undefined });
+      j++;
+    }
+  }
+
+  // Lists that gained items: give the new ones the list's own style.
+  for (let s = 0; s < lines.length;) {
+    const kind = ORDERED.test(lines[s].text) ? ORDERED : BULLET.test(lines[s].text) ? BULLET : null;
+    if (!kind) { s++; continue; }
+    let e = s;
+    while (e < lines.length && kind.test(lines[e].text)) e++;
+    (kind === ORDERED ? restyleNumbers : restyleBullets)(lines.slice(s, e), a);
+    s = e;
+  }
+  return lines.map((l) => l.text).join('\n');
+}
+
+function keepMarker(was, now) {
+  for (const re of [ORDERED, BULLET]) {
+    const w = re.exec(was), n = re.exec(now);
+    if (w && n) return w[0] + now.slice(n[0].length);
+  }
+  return now;
+}
+
+function restyleNumbers(run, source) {
+  const kept = run.filter((l) => l.from !== null && ORDERED.test(source[l.from]))
+    .map((l) => ({ at: l.from, n: +ORDERED.exec(source[l.from])[2] }));
+  const renumber = (l, n) => { l.text = l.text.replace(ORDERED, (_, ind, _n, rest) => ind + n + rest); };
+  if (kept.length > 1 && kept.every((k) => k.n === kept[0].n)) {
+    run.filter((l) => l.added).forEach((l) => renumber(l, kept[0].n));
+  } else if (kept.length > 1 && kept.every((k, i) => i === 0 || k.n - kept[i - 1].n === k.at - kept[i - 1].at)) {
+    const first = +ORDERED.exec(run[0].text)[2];
+    run.forEach((l, i) => renumber(l, first + i));
+  }
+}
+
+function restyleBullets(run, source) {
+  const marks = new Set(run.filter((l) => l.from !== null && BULLET.test(source[l.from]))
+    .map((l) => BULLET.exec(source[l.from])[2]));
+  if (marks.size !== 1) return;
+  const [mark] = marks;
+  run.filter((l) => l.added).forEach((l) => { l.text = l.text.replace(BULLET, (_, ind, _m, sp) => ind + mark + sp); });
+}
+
 /** Loose normalisation for comparing stored Markdown with converted Markdown. */
 export function normalize(s) {
   return String(s || '')
@@ -110,6 +206,7 @@ export function normalize(s) {
     .replace(/^[ \t]*(\d+)\)[ \t]+/gm, '$1. ')
     .replace(/^[ \t]*\d+\.[ \t]+/gm, '1. ')
     .replace(/\\([*_`[\]\\])/g, '$1')
+    .replace(/&(lt|gt|amp);/g, (_, e) => ({ lt: '<', gt: '>', amp: '&' })[e])
     .replace(/[ \t]+\n/g, '\n')
     .replace(/\n{3,}/g, '\n\n')
     .replace(/[ \t]+/g, ' ')

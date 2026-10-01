@@ -1,7 +1,7 @@
 name: MAW Builder
 slug: maw-builder
 type: plugin
-version: 1.2.0
+version: 1.2.1
 homepage: https://github.com/nickfmc/grav-plugin-maw-builder
 bugs: https://github.com/nickfmc/grav-plugin-maw-builder/issues
 description: WordPress-style visual page builder for Admin2. Live preview, block inserter, patterns, media picker. Saves plain `blocks:` YAML.
