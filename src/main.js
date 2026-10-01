@@ -10,6 +10,9 @@ import { currentContext } from './lib/blocks.js';
 // Replaced with the compiled CSS by scripts/finalize.mjs.
 const CSS = "__MAW_CSS__";
 const TAG = window.__GRAV_FIELD_TAG || 'grav-maw-builder--blocks';
+// The lists the server, the preview hook and the theme know (pages: header.<name>, Flex: <name>). A blueprint can
+// declare `type: blocks` on any field, so another name gets a notice and its value is left exactly as stored.
+const FIELDS = ['blocks', 'blocks_after'];
 
 function styleEl() {
   const s = document.createElement('style');
@@ -28,7 +31,7 @@ class BlocksField extends HTMLElement {
 
   set field(v) {
     this.#field = v;
-    if (this.#store) this.#store.fieldName = this.#fieldKey();
+    if (this.#store && this.#fieldKey()) this.#store.fieldName = this.#fieldKey();
   }
   get field() { return this.#field; }
 
@@ -40,14 +43,25 @@ class BlocksField extends HTMLElement {
   }
   get value() { return this.#value; }
 
+  /** 'blocks' | 'blocks_after', or null for a field the builder does not edit. */
   #fieldKey() {
-    const name = String(this.#field?.name || 'header.blocks');
-    return name.replace(/^header\./, '') === 'blocks_after' ? 'blocks_after' : 'blocks';
+    const name = String(this.#field?.name || 'header.blocks').replace(/^header\./, '');
+    return FIELDS.includes(name) ? name : null;
   }
 
   connectedCallback() {
     if (this.#store) return;
     const root = this.shadowRoot || this.attachShadow({ mode: 'open' });
+    if (!this.#fieldKey()) {
+      if (!root.childElementCount) {
+        root.appendChild(styleEl());
+        const note = document.createElement('p');
+        note.style.cssText = 'margin:0;padding:10px 12px;border:1px dashed var(--mb-border);border-radius:8px;color:var(--mb-muted-fg);font-size:13px';
+        note.textContent = `The visual builder edits only the blocks and blocks_after fields, so “${this.#field?.name}” is left as it is.`;
+        root.appendChild(note);
+      }
+      return;
+    }
     root.appendChild(styleEl());
 
     this.#store = new BuilderStore({
