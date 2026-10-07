@@ -25,6 +25,11 @@
   let stageHeight = $state(600);
   let scrollToSelection = false;     // scroll the next rendered frame to the selected block
 
+  // The preview is sandboxed without allow-same-origin: a previewed page's scripts (theme, embeds, other plugins)
+  // must not run as the admin origin, where they could read the API token. Its messages therefore arrive from origin
+  // 'null' and ours can only be addressed to '*'; both directions are limited to our own two iframes.
+  const send = (win, msg) => win?.postMessage({ source: 'maw-builder', ...msg }, '*');
+
   // Busy while a render is pending or loading: dims the page and says what is happening.
   const stale = $derived(loading || !!store.busy);
 
@@ -104,28 +109,30 @@
     lastSelected = sel;
     // While a render is pending the visible frame is stale (indexes may have shifted): apply after the swap.
     if (stale) { if (changed) scrollToSelection = true; return; }
-    els[active]?.contentWindow?.postMessage({ source: 'maw-builder', type: 'select', index: sel, multi, scroll: changed }, location.origin);
+    send(els[active]?.contentWindow, { type: 'select', index: sel, multi, scroll: changed });
   });
 
   // Soft lock: the preview turns inline editing off while read-only.
   $effect(() => {
     const value = store.readOnly;
-    if (!stale) els[active]?.contentWindow?.postMessage({ source: 'maw-builder', type: 'readonly', value }, location.origin);
+    if (!stale) send(els[active]?.contentWindow, { type: 'readonly', value });
   });
 
   onMount(() => {
     const onMessage = (e) => {
-      if (e.origin !== location.origin || e.data?.source !== 'maw-preview') return;
       const from = els.findIndex((f) => f && f.contentWindow === e.source);
-      if (from < 0) return;
+      if (from < 0 || e.origin !== 'null' || e.data?.source !== 'maw-preview') return;
       const d = e.data;
+
+      // The bridge waits for us to speak first: that is how it learns our origin.
+      if (d.type === 'hello') { send(e.source, { type: 'hello' }); return; }
 
       if (d.type === 'ready') {
         if (from !== active) {
           // Restore scroll, then swap the freshly rendered frame in.
-          e.source.postMessage({ source: 'maw-builder', type: 'scrollTo', y: scrollY }, location.origin);
-          e.source.postMessage({ source: 'maw-builder', type: 'select', index: store.selected, multi: [...store.multi], scroll: scrollToSelection, behavior: 'smooth' }, location.origin);
-          e.source.postMessage({ source: 'maw-builder', type: 'readonly', value: store.readOnly }, location.origin);
+          send(e.source, { type: 'scrollTo', y: scrollY });
+          send(e.source, { type: 'select', index: store.selected, multi: [...store.multi], scroll: scrollToSelection, behavior: 'smooth' });
+          send(e.source, { type: 'readonly', value: store.readOnly });
           scrollToSelection = false;
           const focus = store.pendingFocus;
           store.pendingFocus = null;
@@ -133,7 +140,7 @@
             active = from;
             settle();
             // A repeater item was just added: jump straight into typing its text.
-            if (focus) e.source.postMessage({ source: 'maw-builder', type: 'focus-edit', index: focus.index, path: focus.path }, location.origin);
+            if (focus) send(e.source, { type: 'focus-edit', index: focus.index, path: focus.path });
           });
         } else {
           settle();
@@ -158,7 +165,7 @@
       else if (d.type === 'image-pick') { store.select(d.index); store.imagePick = { index: d.index, path: d.path }; }
       else if (d.type === 'md-request') {
         const value = store.getPath(d.index, d.path);
-        e.source.postMessage({ source: 'maw-builder', type: 'md-value', req: d.req, value: typeof value === 'string' ? value : '' }, location.origin);
+        send(e.source, { type: 'md-value', req: d.req, value: typeof value === 'string' ? value : '' });
       }
       else if (d.type === 'inline-start') { store.inlineEditing = true; if (store.selected !== d.index || store.selection.length > 1) store.select(d.index); }
       else if (d.type === 'inline-end') store.inlineEditing = false;
@@ -227,7 +234,7 @@
     <div class="stage" bind:this={stage} bind:clientHeight={stageHeight}>
       {#each frames as frame, i (frame.key)}
         <iframe bind:this={els[i]} src={frame.src} title="Page preview" class:hidden={i !== active}
-                sandbox="allow-same-origin allow-scripts"></iframe>
+                sandbox="allow-scripts"></iframe>
       {/each}
 
       <div class="overlay">
