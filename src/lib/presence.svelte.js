@@ -20,6 +20,7 @@ export class Presence {
   #owner = null;            // {key, ctx} of the last heartbeat
   #knownEditors = new Set();
   #claiming = false;
+  #checked = '';            // the newer version and blocks last compared by adoptSaved()
   #onHide = () => this.#release();
 
   constructor(store) {
@@ -82,8 +83,18 @@ export class Presence {
     this.#knownEditors = new Set(others.filter((o) => o.editing).map((o) => o.session));
     this.others = others;
 
-    if (store.open && !store.saving && res.modified && store.baseModified && res.modified > store.baseModified
-        && !(this.stale && this.stale.modified === res.modified)) {
+    if (store.saving || !res.modified || !store.baseModified || res.modified <= store.baseModified) return;
+    // Saved with Admin2's own Save button (even with the builder closed): the newer version is ours, not a conflict.
+    const checked = res.modified + ':' + JSON.stringify(store.snapshot());
+    if (checked !== this.#checked) {
+      this.#checked = checked;
+      if (await store.adoptSaved()) {
+        if (this.stale && this.stale.modified <= store.baseModified) this.stale = null;
+        return;
+      }
+      if (key !== store.ownerKey) return;
+    }
+    if (store.open && !(this.stale && this.stale.modified === res.modified)) {
       this.stale = { by: res.saved_by && res.saved_by !== this.me ? res.saved_by : '', modified: res.modified };
     }
   }

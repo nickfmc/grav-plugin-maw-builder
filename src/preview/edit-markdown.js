@@ -7,9 +7,9 @@ import { post, on } from './bridge.js';
 import { indexOf, place, shadowHost } from './dom.js';
 import { interaction } from './interaction.js';
 import { isSaveKey, saveFromEdit } from './keys.js';
-import { htmlToMarkdown, normalize, roundTrips } from './markdown.js';
+import { committedMarkdown, roundTrips, unsafeHref } from './markdown.js';
 
-let md = null;   // {el, index, path, inline, mode: 'visual' | 'source', source, original, savedRange}
+let md = null;   // {el, index, path, inline, mode: 'visual' | 'source', stored, source, original, savedRange}
 let seq = 0;     // start sequence: a second click while the source is still loading supersedes the first
 let reqSeq = 0;
 const pending = {};
@@ -127,7 +127,7 @@ export async function startMarkdown(el) {
   if (mine !== seq || source === null || interaction.busy) return;
 
   const visual = roundTrips(el, source, inline);
-  md = { el, index, path, inline, source, original: el.innerHTML, mode: visual ? 'visual' : 'source', savedRange: null };
+  md = { el, index, path, inline, stored: source, source, original: el.innerHTML, mode: visual ? 'visual' : 'source', savedRange: null };
   interaction.begin('markdown', el, finish);
   post({ type: 'inline-start', index, path });
   ensureUi();
@@ -150,7 +150,7 @@ function openSourcePopover(why) {
   ui.bar.classList.remove('on');
   if (md.mode === 'visual') {
     // Switching from visual: take what's been typed so far.
-    md.source = htmlToMarkdown(md.el, { inline: md.inline, lenient: true });
+    md.source = committedMarkdown(md.el, md.stored, md.inline);
     md.el.contentEditable = 'false';
     md.el.removeAttribute('contenteditable');
   }
@@ -170,14 +170,15 @@ function finish(commit) {
   md = null;
   let value = null;
   if (commit) {
-    value = m.mode === 'source' ? ui.area.value.replace(/\r\n?/g, '\n').trim() : htmlToMarkdown(m.el, { inline: m.inline, lenient: true });
+    value = m.mode === 'source' ? ui.area.value.replace(/\r\n?/g, '\n').trim() : committedMarkdown(m.el, m.stored, m.inline);
   }
   if (ui) { ui.bar.classList.remove('on', 'linking'); ui.pop.classList.remove('on'); }
   m.el.removeAttribute('contenteditable');
   m.el.classList.remove('maw-is-editing');
   if (!commit || value === null) m.el.innerHTML = m.original;
   post({ type: 'inline-end', index: m.index, path: m.path });
-  if (commit && value !== null && normalize(value) !== normalize(m.source)) {
+  // Against what was stored, not the popover's text: visual edits carried into the popover are still edits.
+  if (commit && value !== null && value.trim() !== m.stored.replace(/\r\n?/g, '\n').trim()) {
     post({ type: 'inline-md', index: m.index, path: m.path, value });
   }
 }
@@ -208,7 +209,7 @@ function toolbarCommand(cmd) {
     const url = ui.linkInput.value.trim();
     if (cmd === 'link-apply') {
       if (!url) document.execCommand('unlink');
-      else if (!/^\s*javascript:/i.test(url)) {
+      else if (!unsafeHref(url)) {
         if (window.getSelection().isCollapsed) document.execCommand('insertText', false, url);
         if (window.getSelection().isCollapsed && md.savedRange) {
           // Select the text just inserted so it becomes the link label.

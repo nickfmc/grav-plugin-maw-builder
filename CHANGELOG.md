@@ -1,5 +1,12 @@
 # Changelog
 
+## v1.2.3 (2026-10-15)
+
+- **Visual Markdown keeps text as text.** `<` typed on the canvas is stored as `&lt;` (Parsedown has no `\<` escape, so it became raw HTML on the page), and `&` where it would read as an entity. `data:` and `vbscript:` links are refused like `javascript:`, in the converter and the link toolbar.
+- **A visual edit changes only what it touched.** List numbers, `__`/`_` emphasis and bullet markers elsewhere in the field stay as written (normalising is for comparison only), and a list that gains or loses items keeps its numbering style. Visual edits carried into the Markdown popover are no longer dropped on Apply.
+- **Saving with Admin2's own Save button** no longer leaves the builder dirty or warns that a newer version was saved after you opened it: a newer version holding exactly the builder's blocks is taken as its own save. Opening a global section no longer resets the page's base.
+- **Only `blocks` and `blocks_after`.** A field declared `type: blocks` under another name shows a notice and keeps its stored value, instead of previewing, confirming and backing up against `blocks`.
+
 ## v1.2.2 (2026-10-01)
 
 - **Security: the preview is sandboxed.** The builder's iframe had `allow-same-origin allow-scripts`, which is no sandbox: any script on the previewed page (theme JS, an embed, another plugin) ran as Admin2's origin and could read its API token (`window.parent.__GRAV_API_TOKEN`) and the stored JWT (`grav_admin_auth::<basePath>`). The iframe now has `allow-scripts` only, so the page runs in an opaque origin. The bridge talks only to the origin it learns from the parent's first message, and the builder accepts messages only from its own iframes. For themes: storage and cookies throw inside the preview, and self-hosted fonts need `Access-Control-Allow-Origin` there (README, Previews).

@@ -2,6 +2,8 @@
 
 A visual page builder for Admin2 with a live preview, by Mountain Air Web. It replaces `blocks` list fields with a full-screen builder and still saves plain `blocks:` YAML, so files, git and MCP agents stay compatible.
 
+It edits two lists: `header.blocks` and `header.blocks_after` on pages, `blocks` and `blocks_after` on Flex objects. A field declared `type: blocks` under any other name shows a notice and keeps its stored value, because the preview, the save checks and the theme know only these two.
+
 Built alongside the [MAW Starter](https://github.com/nickfmc/grav-theme-maw-starter) theme; see [What a theme provides](#what-a-theme-provides) for using it with another theme.
 
 ## Features
